@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
+from pathlib import Path
 
-from c_tec.buffer import TrajectoryBuffer, Trajectory, RunningMeanStd
-from c_tec.utils.logging import MetricsLogger
-from tqdm import trange
 import numpy as np
+from tqdm import trange
+
+from c_tec.buffer import RunningMeanStd, Trajectory, TrajectoryBuffer
+from c_tec.utils.logging import MetricsLogger
 
 logger = logging.getLogger(__name__)
 
@@ -102,22 +104,29 @@ def train(
     log_interval: int,
     eval_interval: int,
     n_eval_episodes: int,
+    save_path: str | Path | None = None,
+    checkpoint_interval: int = 0,
 ) -> tuple[MetricsLogger, dict]:
     """
     Run the full training loop.
 
     Parameters
     ----------
-    env             : Gymnasium environment (wrapped).
-    policy          : RandomPolicy or PPOPolicy.
-    trajectory_buffer: Buffer for full trajectories (C-TeC / visualizations).
-    rollout         : RolloutBuffer for PPO; None for random policy.
-    n_episodes      : Total number of training episodes to run.
-    seed            : Base random seed.
-    method          : "random" or "ppo".
-    log_interval    : Print summary every N episodes.
-    eval_interval   : Run evaluation every N episodes (PPO only; 0 to disable).
-    n_eval_episodes : Number of episodes per evaluation run.
+    env                  : Gymnasium environment (wrapped).
+    policy               : RandomPolicy or PPOPolicy.
+    trajectory_buffer    : Buffer for full trajectories (C-TeC / visualizations).
+    n_episodes           : Total number of training episodes to run.
+    seed                 : Base random seed.
+    method               : "random" or "ppo".
+    log_interval         : Print summary every N episodes.
+    eval_interval        : Run evaluation every N episodes (PPO only; 0 to disable).
+    n_eval_episodes      : Number of episodes per evaluation run.
+    save_path            : Directory where checkpoints and the best/final model
+                           are written.  Saving is skipped when None or when the
+                           policy does not expose a ``save()`` method (e.g.
+                           RandomPolicy).
+    checkpoint_interval  : Save a periodic checkpoint every N episodes.
+                           0 disables periodic checkpoints.
 
     Returns
     -------
@@ -130,8 +139,17 @@ def train(
     last_stats: dict = {}
     return_rms = RunningMeanStd()  # running return normalizer (std-only, RND-style)
 
-    for episode in trange(1, n_episodes + 1):
+    # ── Saving setup ─────────────────────────────────────────────────
+    can_save = save_path is not None and hasattr(policy, "save")
+    save_path = Path(save_path) if save_path is not None else None
+    best_coverage_pct: float = -1.0
+    checkpoints_dir: Path | None = None
+    if can_save:
+        assert save_path is not None
+        checkpoints_dir = save_path / "checkpoints"
+        checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
+    for episode in trange(1, n_episodes + 1):
         # ── Inner loop: episode collection ───────────────────────────────
         # rollout=None  → evaluation / random mode (no gradient data stored)
         # rollout=...   → training mode  (fills RolloutBuffer for PPO update)
@@ -163,6 +181,27 @@ def train(
 
             ppo_metrics = policy.update(trajectory, last_value=last_value)
 
+        elif method == "rnd":
+            # Same episode-level structure as C-TeC:
+            #   1. compute intrinsic rewards via RND prediction error
+            #   2. update the predictor on the episode's states
+            #   3. PPO update on the intrinsic rewards
+            _, _, last_value = policy.select_action(stats["last_obs"])
+
+            trajectory = trajectory_buffer.get_last()
+            trajectory.compute_intrinsic_rewards_rnd(
+                policy.rnd_model, gamma=policy.gamma, return_rms=return_rms
+            )
+            rnd_loss = policy.update_rnd(trajectory)
+            logger.info(
+                f"mean reward (normalized): {np.array(trajectory.rewards).mean():.4f} "
+                f"| RND predictor loss: {rnd_loss:.4f} "
+                f"| return running std: {return_rms.std:.4f}"
+            )
+
+            ppo_metrics = policy.update(trajectory, last_value=last_value)
+            ppo_metrics["rnd_loss"] = rnd_loss
+
         # ── Logging ─────────────────────────────────────────────────────
         stats_to_save = deepcopy(stats)
         for key in ("reached_count", "starting_pos", "last_obs"):
@@ -171,6 +210,31 @@ def train(
             stats_to_save.update(ppo_metrics)
 
         train_logger.log(episode=episode, total_steps=total_steps, **stats_to_save)
+
+        # ── Checkpoint saving ────────────────────────────────────────
+        if can_save:
+            assert save_path is not None
+            # Best model: save whenever coverage improves
+            current_coverage_pct = stats["episode_coverage_pct"]
+            if current_coverage_pct > best_coverage_pct:
+                best_coverage_pct = current_coverage_pct
+                policy.save(
+                    save_path / "best_model.pt",
+                    episode=episode,
+                    total_steps=total_steps,
+                )
+                logger.info(
+                    f"New best coverage {best_coverage_pct:.1%} — best_model.pt updated"
+                )
+
+            # Periodic checkpoint
+            if checkpoint_interval > 0 and episode % checkpoint_interval == 0:
+                assert checkpoints_dir is not None
+                policy.save(
+                    checkpoints_dir / f"checkpoint_ep{episode:06d}.pt",
+                    episode=episode,
+                    total_steps=total_steps,
+                )
 
         if episode % log_interval == 0:
             recent = train_logger.recent(log_interval)
@@ -182,7 +246,7 @@ def train(
                     f"  V {recent['value_loss']:.4f}"
                     f"  H {recent['entropy']:.4f}"
                 )
-            print(
+            logger.info(
                 f"[Ep {episode:5d}] "
                 f"Steps: {total_steps:8d} | "
                 f"Avg coverage: {recent['episode_coverage']:.1f} cells "
@@ -211,5 +275,14 @@ def train(
         #         f"± {np.std(eval_coverages):.1%}"
         #         f" over {n_eval_episodes} episodes"
         #     )
+
+    # ── Final model save ─────────────────────────────────────────────
+    if can_save:
+        assert save_path is not None
+        policy.save(
+            save_path / "final_model.pt",
+            episode=n_episodes,
+            total_steps=total_steps,
+        )
 
     return train_logger, last_stats

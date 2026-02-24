@@ -1,1 +1,1 @@
-from .policies import RandomPolicy, CTeCPolicy
+from .policies import CTeCPolicy, RandomPolicy, RNDPolicy

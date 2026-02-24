@@ -1,3 +1,6 @@
+training:
+  episode_length: 3000
+  num_episodes: 100
 
 hyperparameters:
   num_timesteps: 10000
@@ -12,7 +15,6 @@ hyperparameters:
   value_coef: 0.5
   max_grad_norm: 1.0
   hidden_dim: 64
-  minibatch_size: 500
 
 c_tec:
   batch_size: 32
@@ -21,3 +23,9 @@ c_tec:
   logsumexp_penalty: 0
   hidden_dim: 256
   representation_dim: 32
+  gamma: 0.8
+
+rnd:
+  predictor_lr: 1.0e-3
+  hidden_dim: 256
+  representation_dim: 64

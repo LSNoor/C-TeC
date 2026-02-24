@@ -9,8 +9,9 @@ import numpy as np
 import torch
 
 from c_tec.buffer import TrajectoryBuffer
+from c_tec.config import get_config
 from c_tec.envs import make_env
-from c_tec.models import RandomPolicy, CTeCPolicy
+from c_tec.models import CTeCPolicy, RandomPolicy
 from c_tec.train import train
 from c_tec.utils.visualization import (
     plot_coverage_over_time,
@@ -18,8 +19,6 @@ from c_tec.utils.visualization import (
     plot_heatmap_of_position_filtered,
     plot_reached_states,
 )
-from c_tec.config import get_config
-
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -37,10 +36,7 @@ def main():
     parser.add_argument(
         "--method", type=str, default="c-tec", choices=["random", "c-tec"]
     )
-    parser.add_argument(
-        "--n-episodes", type=int, default=150, help="Number of training episodes."
-    )
-    parser.add_argument("--seed", type=int, default=100)
+    parser.add_argument("--seed", type=int, default=28)
     parser.add_argument("--log-interval", type=int, default=1)
     parser.add_argument(
         "--eval-interval",
@@ -56,10 +52,10 @@ def main():
     )
     parser.add_argument("--output-dir", type=str, default="results")
     parser.add_argument(
-        "--max-steps",
+        "--checkpoint-interval",
         type=int,
-        default=2000,
-        help="Maximum number of steps per episode (truncation limit).",
+        default=0,
+        help="Save a periodic checkpoint every N episodes. 0 to disable.",
     )
     parser.add_argument(
         "--config-file",
@@ -76,13 +72,12 @@ def main():
     torch.manual_seed(args.seed)
 
     # --- Setup ---
-    env = make_env(seed=args.seed, max_steps=args.max_steps)
+    env = make_env(seed=args.seed, max_steps=CONFIG.training.episode_length)
     n_actions = 7
     state_dim = 6
     trajectory_buffer = TrajectoryBuffer()
 
     match args.method:
-
         case "random":
             policy = RandomPolicy(n_actions)
             rollout = None
@@ -98,7 +93,7 @@ def main():
                 similarity_function=CONFIG.c_tec.similarity_function,
                 policy_lr=CONFIG.hyperparameters.policy_lr,
                 critic_lr=CONFIG.hyperparameters.critic_lr,
-                gamma=0.8,  # CONFIG.hyperparameters.discount_factor,
+                gamma=CONFIG.c_tec.gamma,
                 gae_lambda=CONFIG.hyperparameters.gae_lambda,
                 max_grad_norm=CONFIG.hyperparameters.max_grad_norm,
                 clip_eps=CONFIG.hyperparameters.clip_epsilon,
@@ -119,23 +114,29 @@ def main():
     logger.info("Environment: MiniGrid-FourRooms-v0")
     logger.info(f"Reachable cells: {env.n_reachable}")
     logger.info(f"Action space: {n_actions} actions")
-    logger.info(f"Running {args.n_episodes} episodes with {args.method} policy\n")
+    logger.info(
+        f"Running {CONFIG.training.num_episodes} episodes with {args.method} policy\n"
+    )
+
+    # --- Setup output directory ---
+    out = Path(args.output_dir) / args.method
 
     # --- Train ---
     train_logger, last_stats = train(
         env=env,
         policy=policy,
         trajectory_buffer=trajectory_buffer,
-        n_episodes=args.n_episodes,
+        n_episodes=CONFIG.training.num_episodes,
         seed=args.seed,
         method=args.method,
         log_interval=args.log_interval,
         eval_interval=args.eval_interval,
         n_eval_episodes=args.n_eval_episodes,
+        save_path=out,
+        checkpoint_interval=args.checkpoint_interval,
     )
 
     # --- Save results ---
-    out = Path(args.output_dir) / args.method
     train_logger.save(out / "metrics.json")
 
     plot_coverage_over_time(
@@ -146,7 +147,7 @@ def main():
 
     plot_heatmap_of_position(
         reached_count=last_stats["reached_count"],
-        n_episodes=args.n_episodes,
+        n_episodes=CONFIG.training.num_episodes,
         reachable_cells=env.compute_reachable(),
         starting_cell=last_stats["starting_pos"],
         save_path=out / "heatmap_of_positions.png",
@@ -154,7 +155,7 @@ def main():
 
     plot_heatmap_of_position_filtered(
         reached_count=last_stats["reached_count"],
-        n_episodes=args.n_episodes,
+        n_episodes=CONFIG.training.num_episodes,
         reachable_cells=env.compute_reachable(),
         starting_cell=last_stats["starting_pos"],
         save_path=out / "heatmap_filtered.png",

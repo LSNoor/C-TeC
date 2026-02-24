@@ -12,7 +12,6 @@ from collections import deque
 from dataclasses import dataclass, field
 
 import numpy as np
-
 import torch
 
 
@@ -66,7 +65,6 @@ class RunningMeanStd:
 
 @dataclass
 class Trajectory:
-
     def __init__(self):
         self.current_idx: int = 0
 
@@ -131,7 +129,6 @@ class Trajectory:
 
         gae = 0.0
         for t in reversed(range(T)):
-
             delta = (
                 self.rewards[t] + gamma * bootstrap_values[t + 1] - bootstrap_values[t]
             )
@@ -182,7 +179,7 @@ class Trajectory:
     def compute_intrinsic_rewards(
         self,
         critic_encoder,
-        gamma,
+        gamma: float,
         return_rms: RunningMeanStd | None = None,
     ):
         """Compute intrinsic rewards and optionally normalize them.
@@ -224,6 +221,56 @@ class Trajectory:
             return_rms.update(returns)
             normed = raw / (return_rms.std + 1e-8)
             for t in range(T):
+                self.rewards[t] = float(normed[t])
+
+    def compute_intrinsic_rewards_rnd(
+        self,
+        rnd_model,
+        gamma: float,
+        return_rms: RunningMeanStd | None = None,
+    ) -> None:
+        """Compute RND intrinsic rewards for the trajectory.
+
+        The reward at step t is the prediction error on the next state s_{t+1}:
+            r_i(t) = ||f_hat(s_{t+1}) - f(s_{t+1})||^2
+
+        The last step gets reward 0.0 (no next state available).
+        Normalization mirrors compute_intrinsic_rewards: discounted returns
+        are used to update the running std, then rewards are divided by it.
+
+        Args:
+            rnd_model: RNDModel instance (holds target + predictor).
+            gamma:     Discount factor for return-based normalization.
+            return_rms: Optional RunningMeanStd for reward normalization.
+        """
+        T = len(self.states)
+        if T < 2:
+            return
+
+        states = torch.tensor(
+            np.array(self.states), dtype=torch.float32, device=rnd_model.device
+        )
+        # Reward for step t = prediction error on s_{t+1}
+        next_states = states[1:]  # (T-1, state_dim)
+        errors = rnd_model.compute_reward(next_states)  # (T-1,)
+
+        raw = errors.cpu().numpy().astype(np.float64)
+        for t in range(T - 1):
+            self.rewards[t] = float(raw[t])
+        self.rewards[T - 1] = 0.0  # no next state for the terminal step
+
+        if return_rms is not None:
+            # Compute discounted returns for this episode (backward pass)
+            returns = np.zeros(T - 1, dtype=np.float64)
+            G = 0.0
+            for t in reversed(range(T - 1)):
+                G = raw[t] + gamma * G
+                returns[t] = G
+
+            # Update running statistics with returns, normalize rewards by std
+            return_rms.update(returns)
+            normed = raw / (return_rms.std + 1e-8)
+            for t in range(T - 1):
                 self.rewards[t] = float(normed[t])
 
 
