@@ -268,7 +268,7 @@ packages:
 - pypi: ./
   name: c-tec
   version: 0.1.0
-  sha256: 57f3bc79bde3312a71e19e21704853f19926f8c4359a5496baf0c59a3eeae6fb
+  sha256: 687e9760b4198b89ac9538841413d27be0bff4eb294f6302fed7a266f0605787
   requires_dist:
   - minigrid>=3.0.0,<4
   - torch>=2.10.0,<3
@@ -276,7 +276,7 @@ packages:
   - seaborn>=0.13.2,<0.14
   - pyyaml>=6.0.3,<7
   - tqdm>=4.66.5,<5
-  - ipykernel
+  - ipykernel>=7.2.0,<8
   requires_python: '>=3.11'
 - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.1.4-h4c7d964_0.conda
   sha256: 4ddcb01be03f85d3db9d881407fb13a673372f1b9fac9c836ea441893390e049

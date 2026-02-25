@@ -11,7 +11,7 @@ import torch
 from c_tec.buffer import TrajectoryBuffer
 from c_tec.config import get_config
 from c_tec.envs import make_env
-from c_tec.models import CTeCPolicy, RandomPolicy
+from c_tec.models import CTeCPolicy, RandomPolicy, RNDPolicy
 from c_tec.train import train
 from c_tec.utils.visualization import (
     plot_coverage_over_time,
@@ -34,7 +34,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--method", type=str, default="c-tec", choices=["random", "c-tec"]
+        "--method", type=str, default="rnd", choices=["random", "c-tec", "rnd"]
     )
     parser.add_argument("--seed", type=int, default=28)
     parser.add_argument("--log-interval", type=int, default=1)
@@ -60,13 +60,14 @@ def main():
     parser.add_argument(
         "--config-file",
         type=str,
-        default="config.yaml",
+        default="c-tec_config.yaml",
         help="path to the yaml configuration file",
     )
 
     args = parser.parse_args()
 
     CONFIG = get_config(args.config_file)
+    RESULTS_DIR = Path(__file__).parent.parent / args.output_dir
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -80,7 +81,6 @@ def main():
     match args.method:
         case "random":
             policy = RandomPolicy(n_actions)
-            rollout = None
 
         case "c-tec":
             policy = CTeCPolicy(
@@ -105,6 +105,32 @@ def main():
                 contrastive_lr=CONFIG.c_tec.contrastive_lr,
                 contrastive_batch_size=CONFIG.c_tec.batch_size,
                 logsumexp_penalty=CONFIG.c_tec.logsumexp_penalty,
+            )
+
+        case "rnd":
+            if CONFIG.rnd is None:
+                raise RuntimeError(
+                    "The [rnd] section is missing from the config file. "
+                    "Add it before running with --method rnd."
+                )
+            policy = RNDPolicy(
+                state_dim=state_dim,
+                action_dim=n_actions,
+                hidden_dim=CONFIG.hyperparameters.hidden_dim,
+                rnd_hidden_dim=CONFIG.rnd.hidden_dim,
+                rnd_repr_dim=CONFIG.rnd.representation_dim,
+                rnd_lr=CONFIG.rnd.predictor_lr,
+                policy_lr=CONFIG.hyperparameters.policy_lr,
+                critic_lr=CONFIG.hyperparameters.critic_lr,
+                gamma=CONFIG.hyperparameters.discount_factor,
+                gae_lambda=CONFIG.hyperparameters.gae_lambda,
+                max_grad_norm=CONFIG.hyperparameters.max_grad_norm,
+                clip_eps=CONFIG.hyperparameters.clip_epsilon,
+                value_coef=CONFIG.hyperparameters.value_coef,
+                entropy_coef=CONFIG.hyperparameters.entropy_coef,
+                n_epochs=CONFIG.hyperparameters.update_epoch,
+                batch_size=CONFIG.hyperparameters.minibatch_size,
+                device=device,
             )
 
         case _:

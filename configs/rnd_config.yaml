@@ -3,11 +3,9 @@ training:
   num_episodes: 100
 
 hyperparameters:
-  num_timesteps: 10000
-  num_steps: 64
   policy_lr: 2.0e-4
   critic_lr: 2.0e-4
-  update_epoch: 1
+  update_epoch: 4
   discount_factor: 0.99
   gae_lambda: 0.8
   clip_epsilon: 0.2
@@ -26,6 +24,6 @@ c_tec:
   gamma: 0.8
 
 rnd:
-  predictor_lr: 1.0e-3
-  hidden_dim: 256
-  representation_dim: 64
+  predictor_lr: 6e-4
+  hidden_dim: 64
+  representation_dim : 32

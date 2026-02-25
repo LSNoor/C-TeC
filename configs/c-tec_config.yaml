@@ -1,0 +1,24 @@
+training:
+  episode_length: 3000
+  num_episodes: 100
+
+hyperparameters:
+  policy_lr: 2.0e-4
+  critic_lr: 2.0e-4
+  update_epoch: 1
+  discount_factor: 0.99
+  gae_lambda: 0.8
+  clip_epsilon: 0.2
+  entropy_coef: 0.1
+  value_coef: 0.5
+  max_grad_norm: 1.0
+  hidden_dim: 64
+
+c_tec:
+  batch_size: 32
+  contrastive_lr: 6e-4
+  similarity_function: l2
+  logsumexp_penalty: 0
+  hidden_dim: 256
+  representation_dim: 32
+  gamma: 0.8

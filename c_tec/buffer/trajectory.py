@@ -270,6 +270,7 @@ class Trajectory:
             # Update running statistics with returns, normalize rewards by std
             return_rms.update(returns)
             normed = raw / (return_rms.std + 1e-8)
+            normed = normed.clip(-5, 5)
             for t in range(T - 1):
                 self.rewards[t] = float(normed[t])
 

@@ -150,9 +150,6 @@ def train(
         checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
     for episode in trange(1, n_episodes + 1):
-        # ── Inner loop: episode collection ───────────────────────────────
-        # rollout=None  → evaluation / random mode (no gradient data stored)
-        # rollout=...   → training mode  (fills RolloutBuffer for PPO update)
         stats = collect_episode(
             env,
             policy,
@@ -206,7 +203,7 @@ def train(
         stats_to_save = deepcopy(stats)
         for key in ("reached_count", "starting_pos", "last_obs"):
             stats_to_save.pop(key, None)
-        if method == "c-tec":
+        if method in ["c-tec", "rnd"]:
             stats_to_save.update(ppo_metrics)
 
         train_logger.log(episode=episode, total_steps=total_steps, **stats_to_save)
@@ -239,7 +236,7 @@ def train(
         if episode % log_interval == 0:
             recent = train_logger.recent(log_interval)
             ppo_str = ""
-            if method == "c-tec":
+            if method in ["c-tec", "rnd"]:
                 ppo_str = (
                     f" | Loss {recent['total_loss']:.4f}"
                     f"  π {recent['policy_loss']:.4f}"

@@ -82,7 +82,7 @@ class Config(BaseSettings):
 
 def get_config(config_path: str) -> Config:
 
-    path_to_config = Path(__file__).parent / config_path
+    path_to_config = Path(__file__).parent.parent / "configs" / config_path
     if not path_to_config.exists():
         raise FileNotFoundError("The config file does not exist.")
 

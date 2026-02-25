@@ -204,6 +204,37 @@ class PPOPolicy:
     # Persistence
     # ------------------------------------------------------------------
 
+    def _base_checkpoint(self, episode: int, total_steps: int) -> dict:
+        """Build the base checkpoint dict shared by all PPO-derived policies.
+
+        Subclasses extend the returned dict with their own components
+        before calling torch.save(), so the base keys are defined exactly
+        once and never duplicated.
+        """
+        return {
+            "episode": episode,
+            "total_steps": total_steps,
+            "actor_state_dict": self.actor.state_dict(),
+            "critic_state_dict": self.critic.state_dict(),
+            "policy_optimizer_state_dict": self.policy_optimizer.state_dict(),
+            "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
+        }
+
+    def _load_base_checkpoint(self, checkpoint: dict) -> tuple[int, int]:
+        """Restore the base PPO components from a checkpoint dict.
+
+        Subclasses call this first, then restore their own extra keys.
+
+        Returns
+        -------
+        episode, total_steps : metadata stored in the checkpoint.
+        """
+        self.actor.load_state_dict(checkpoint["actor_state_dict"])
+        self.critic.load_state_dict(checkpoint["critic_state_dict"])
+        self.policy_optimizer.load_state_dict(checkpoint["policy_optimizer_state_dict"])
+        self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer_state_dict"])
+        return checkpoint.get("episode", 0), checkpoint.get("total_steps", 0)
+
     def save(self, path: str | Path, episode: int = 0, total_steps: int = 0) -> None:
         """Save model and optimizer state dicts to a checkpoint file.
 
@@ -215,15 +246,7 @@ class PPOPolicy:
         """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        checkpoint = {
-            "episode": episode,
-            "total_steps": total_steps,
-            "actor_state_dict": self.actor.state_dict(),
-            "critic_state_dict": self.critic.state_dict(),
-            "policy_optimizer_state_dict": self.policy_optimizer.state_dict(),
-            "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
-        }
-        torch.save(checkpoint, path)
+        torch.save(self._base_checkpoint(episode, total_steps), path)
         logger.info(f"Checkpoint saved → {path}")
 
     def load(self, path: str | Path) -> tuple[int, int]:
@@ -240,12 +263,7 @@ class PPOPolicy:
         """
         path = Path(path)
         checkpoint = torch.load(path, map_location=self.device)
-        self.actor.load_state_dict(checkpoint["actor_state_dict"])
-        self.critic.load_state_dict(checkpoint["critic_state_dict"])
-        self.policy_optimizer.load_state_dict(checkpoint["policy_optimizer_state_dict"])
-        self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer_state_dict"])
-        episode = checkpoint.get("episode", 0)
-        total_steps = checkpoint.get("total_steps", 0)
+        episode, total_steps = self._load_base_checkpoint(checkpoint)
         logger.info(
             f"Checkpoint loaded ← {path}  (episode {episode}, steps {total_steps})"
         )
@@ -318,21 +336,16 @@ class CTeCPolicy(PPOPolicy):
     def save(self, path: str | Path, episode: int = 0, total_steps: int = 0) -> None:
         """Save all C-TeC components (actor, critic, contrastive encoder) to a checkpoint.
 
-        Extends :meth:`PPOPolicy.save` by also persisting the
-        ``critic_encoder`` weights and its optimizer state.
+        Extends _base_checkpoint() with the critic_encoder weights and its
+        optimizer state.
         """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        checkpoint = {
-            "episode": episode,
-            "total_steps": total_steps,
-            "actor_state_dict": self.actor.state_dict(),
-            "critic_state_dict": self.critic.state_dict(),
-            "policy_optimizer_state_dict": self.policy_optimizer.state_dict(),
-            "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
-            "critic_encoder_state_dict": self.critic_encoder.state_dict(),
-            "contrastive_optimizer_state_dict": self.critic_encoder.optimizer.state_dict(),
-        }
+        checkpoint = self._base_checkpoint(episode, total_steps)
+        checkpoint["critic_encoder_state_dict"] = self.critic_encoder.state_dict()
+        checkpoint["contrastive_optimizer_state_dict"] = (
+            self.critic_encoder.optimizer.state_dict()
+        )
         torch.save(checkpoint, path)
         logger.info(f"Checkpoint saved → {path}")
 
@@ -346,16 +359,11 @@ class CTeCPolicy(PPOPolicy):
         """
         path = Path(path)
         checkpoint = torch.load(path, map_location=self.device)
-        self.actor.load_state_dict(checkpoint["actor_state_dict"])
-        self.critic.load_state_dict(checkpoint["critic_state_dict"])
-        self.policy_optimizer.load_state_dict(checkpoint["policy_optimizer_state_dict"])
-        self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer_state_dict"])
+        episode, total_steps = self._load_base_checkpoint(checkpoint)
         self.critic_encoder.load_state_dict(checkpoint["critic_encoder_state_dict"])
         self.critic_encoder.optimizer.load_state_dict(
             checkpoint["contrastive_optimizer_state_dict"]
         )
-        episode = checkpoint.get("episode", 0)
-        total_steps = checkpoint.get("total_steps", 0)
         logger.info(
             f"Checkpoint loaded ← {path}  (episode {episode}, steps {total_steps})"
         )
@@ -438,18 +446,40 @@ class RNDPolicy(PPOPolicy):
     def update_rnd(self, trajectory: Trajectory) -> float:
         """Train the RND predictor on the current episode's states.
 
-        All states in the trajectory are used for one gradient step.
+        1. Update observation running mean/std with all episode states
+           (once, before training, so every mini-batch sees the same
+           normalization).
+        2. Iterate over ``n_epochs`` epochs of shuffled mini-batches
+           (matching PPO's update structure) for stable learning.
+
         This is called once per episode, before the PPO update.
 
         Args:
             trajectory: The current episode's Trajectory.
 
         Returns:
-            loss: Scalar predictor MSE loss.
+            loss: Average predictor MSE loss across all mini-batch updates.
         """
         tensors = trajectory.to_tensors(self.device)
         states = tensors["states"]
-        return self.rnd_model.update(states)
+
+        # Update obs normalization statistics once with the full episode
+        self.rnd_model.update_obs_stats(states)
+
+        # Mini-batch training over multiple epochs
+        T = states.shape[0]
+        total_loss = 0.0
+        n_updates = 0
+
+        for _ in range(self.n_epochs):
+            indices = torch.randperm(T, device=self.device)
+            for start in range(0, T, self.batch_size):
+                idx = indices[start : start + self.batch_size]
+                loss = self.rnd_model.update(states[idx])
+                total_loss += loss
+                n_updates += 1
+
+        return total_loss / max(n_updates, 1)
 
     # ------------------------------------------------------------------
     # Persistence (extends PPOPolicy)
@@ -458,20 +488,14 @@ class RNDPolicy(PPOPolicy):
     def save(self, path: str | Path, episode: int = 0, total_steps: int = 0) -> None:
         """Save all RND components (actor, critic, RND model) to a checkpoint.
 
-        Extends PPOPolicy.save() by also persisting the RND model weights
-        and its optimizer state.
+        Extends _base_checkpoint() with the RND model weights and its
+        optimizer state.
         """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        checkpoint = {
-            "episode": episode,
-            "total_steps": total_steps,
-            "actor_state_dict": self.actor.state_dict(),
-            "critic_state_dict": self.critic.state_dict(),
-            "policy_optimizer_state_dict": self.policy_optimizer.state_dict(),
-            "critic_optimizer_state_dict": self.critic_optimizer.state_dict(),
-            "rnd_state_dict": self.rnd_model.state_dict(),
-        }
+        checkpoint = self._base_checkpoint(episode, total_steps)
+        checkpoint["rnd_state_dict"] = self.rnd_model.state_dict()
+        checkpoint["rnd_optimizer_state_dict"] = self.rnd_model.optimizer.state_dict()
         torch.save(checkpoint, path)
         logger.info(f"Checkpoint saved → {path}")
 
@@ -485,13 +509,9 @@ class RNDPolicy(PPOPolicy):
         """
         path = Path(path)
         checkpoint = torch.load(path, map_location=self.device)
-        self.actor.load_state_dict(checkpoint["actor_state_dict"])
-        self.critic.load_state_dict(checkpoint["critic_state_dict"])
-        self.policy_optimizer.load_state_dict(checkpoint["policy_optimizer_state_dict"])
-        self.critic_optimizer.load_state_dict(checkpoint["critic_optimizer_state_dict"])
+        episode, total_steps = self._load_base_checkpoint(checkpoint)
         self.rnd_model.load_state_dict(checkpoint["rnd_state_dict"])
-        episode = checkpoint.get("episode", 0)
-        total_steps = checkpoint.get("total_steps", 0)
+        self.rnd_model.optimizer.load_state_dict(checkpoint["rnd_optimizer_state_dict"])
         logger.info(
             f"Checkpoint loaded ← {path}  (episode {episode}, steps {total_steps})"
         )

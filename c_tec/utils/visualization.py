@@ -230,6 +230,7 @@ def plot_coverage_comparison(
     _POLICY_COLORS: dict[str, str] = {
         "c-tec": "#2eb88a",
         "random": "#808080",
+        "rnd": "#4c72b0",
     }
     _fallback_colors = sns.color_palette()
 
@@ -391,5 +392,5 @@ def plot_reached_states(
 if __name__ == "__main__":
     path = Path(__file__).parent.parent / "results"
     plot_coverage_comparison(
-        policies=["random", "c-tec"], results_dir=path, title="C-TeC vs Random"
+        policies=["random", "c-tec", "rnd"], results_dir=path, title="C-TeC vs Random"
     )
