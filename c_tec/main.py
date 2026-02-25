@@ -34,7 +34,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--method", type=str, default="rnd", choices=["random", "c-tec", "rnd"]
+        "--method", type=str, default="c-tec", choices=["random", "c-tec", "rnd"]
     )
     parser.add_argument("--seed", type=int, default=28)
     parser.add_argument("--log-interval", type=int, default=1)

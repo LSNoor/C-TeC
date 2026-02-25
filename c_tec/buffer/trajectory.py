@@ -180,16 +180,11 @@ class Trajectory:
         self,
         critic_encoder,
         gamma: float,
-        return_rms: RunningMeanStd | None = None,
     ):
-        """Compute intrinsic rewards and optionally normalize them.
+        """
+        Compute intrinsic rewards and optionally normalize them.
 
-        If *return_rms* is provided the discounted returns are used to
-        update the running statistics, then rewards are divided by the
-        running std of returns (no mean subtraction).  This is the
-        standard approach from the RND paper / Stable-Baselines3 and
-        ensures that PPO's value targets stay in a stable range
-        regardless of episode length or reward magnitude.
+
         """
         tensors = self.to_tensors(device=critic_encoder.device)
         states = tensors["states"]
@@ -206,23 +201,7 @@ class Trajectory:
             )
             self.rewards[t] = -c.item()  # -(-distance) = +distance
 
-        if return_rms is not None:
-            raw = np.array(self.rewards[:-1], dtype=np.float64)
-
-            # Compute discounted returns for this episode (backward pass)
-            T = len(raw)
-            returns = np.zeros(T, dtype=np.float64)
-            G = 0.0
-            for t in reversed(range(T)):
-                G = raw[t] + gamma * G
-                returns[t] = G
-
-            # Update running statistics with returns, normalize rewards
-            return_rms.update(returns)
-            normed = raw / (return_rms.std + 1e-8)
-            for t in range(T):
-                self.rewards[t] = float(normed[t])
-
+    @torch.no_grad()
     def compute_intrinsic_rewards_rnd(
         self,
         rnd_model,
@@ -235,9 +214,6 @@ class Trajectory:
             r_i(t) = ||f_hat(s_{t+1}) - f(s_{t+1})||^2
 
         The last step gets reward 0.0 (no next state available).
-        Normalization mirrors compute_intrinsic_rewards: discounted returns
-        are used to update the running std, then rewards are divided by it.
-
         Args:
             rnd_model: RNDModel instance (holds target + predictor).
             gamma:     Discount factor for return-based normalization.
@@ -270,7 +246,6 @@ class Trajectory:
             # Update running statistics with returns, normalize rewards by std
             return_rms.update(returns)
             normed = raw / (return_rms.std + 1e-8)
-            normed = normed.clip(-5, 5)
             for t in range(T - 1):
                 self.rewards[t] = float(normed[t])
 

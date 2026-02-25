@@ -168,7 +168,7 @@ def train(
 
             trajectory = trajectory_buffer.get_last()
             trajectory.compute_intrinsic_rewards(
-                policy.critic_encoder, gamma=policy.gamma, return_rms=return_rms
+                policy.critic_encoder, gamma=policy.gamma
             )
             policy.update_contrastive(trajectory_buffer)
             logger.info(
