@@ -104,8 +104,10 @@ class RNDPredictor(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(0.05),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(0.05),
             nn.Linear(hidden_dim, repr_dim),
         )
         for layer in self.net:
@@ -167,6 +169,7 @@ class RNDModel(nn.Module):
         Returns:
             rewards: (B,) tensor of ||f_hat(s) - f(s)||^2 values.
         """
+        self.predictor.eval()
         normed = self.obs_rms.normalize(states)
         target_features = self.target(normed)
         predicted_features = self.predictor(normed)

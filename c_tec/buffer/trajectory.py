@@ -8,8 +8,10 @@ the buffer works correctly before plugging in contrastive learning.
 
 from __future__ import annotations
 
+import pickle
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -244,7 +246,7 @@ class Trajectory:
                 returns[t] = G
 
             # Update running statistics with returns, normalize rewards by std
-            return_rms.update(returns)
+            return_rms.update(raw)
             normed = raw / (return_rms.std + 1e-8)
             for t in range(T - 1):
                 self.rewards[t] = float(normed[t])
@@ -269,6 +271,23 @@ class TrajectoryBuffer:
     @property
     def total_steps(self) -> int:
         return sum(len(t) for t in self.trajectories)
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+
+    def save(self, path: str | Path) -> None:
+        """Serialize the buffer to disk using pickle."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as f:
+            pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    @staticmethod
+    def load(path: str | Path) -> "TrajectoryBuffer":
+        """Load a previously saved TrajectoryBuffer from disk."""
+        with open(path, "rb") as f:
+            return pickle.load(f)
 
     def sample_with_futures(
         self,

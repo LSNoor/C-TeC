@@ -246,9 +246,9 @@ def plot_coverage_comparison(
             continue
 
         # Discover seed files: flat metrics*.json first, then sub-directory seeds.
-        seed_files: list[Path] = sorted(policy_dir.glob("metrics*.json"))
+        seed_files: list[Path] = sorted(policy_dir.glob("eval_metrics*.json"))
         if not seed_files:
-            seed_files = sorted(policy_dir.glob("*/metrics.json"))
+            seed_files = sorted(policy_dir.glob("*/eval_metrics.json"))
         if not seed_files:
             continue
 
@@ -389,8 +389,180 @@ def plot_reached_states(
     plt.close(fig)
 
 
-if __name__ == "__main__":
-    path = Path(__file__).parent.parent / "results"
-    plot_coverage_comparison(
-        policies=["random", "c-tec", "rnd"], results_dir=path, title="C-TeC vs Random"
+def plot_cumulative_coverage(
+    trajectory_buffer,
+    save_path: str | Path,
+    label: str = "",
+    title: str = "Visited States per Episode",
+    color: str | None = None,
+    subsample: int = 10,
+) -> None:
+    """Plot per-episode visited-state curves with mean ± std bands.
+
+    Each trajectory's ``cell_covered`` list already records the running
+    count of unique cells at each step.  ``sns.lineplot`` aggregates
+    across all episodes in the buffer, producing a mean line with a ±1
+    std shaded band.
+
+    Args:
+        trajectory_buffer: A :class:`TrajectoryBuffer` containing the
+            collected trajectories (in chronological order).
+        save_path:  Destination file for the figure.
+        label:      Legend label for the curve (e.g. ``"C-TeC"``).
+        title:      Plot title.
+        color:      Matplotlib colour for the line.  When *None* a
+                    default is chosen.
+        subsample:  Record one data point every *subsample* steps.
+    """
+    records: list[dict] = []
+    for traj_idx, trajectory in enumerate(trajectory_buffer.trajectories):
+        for i in range(len(trajectory.cell_covered)):
+            if i % subsample == 0 or i == len(trajectory.cell_covered) - 1:
+                records.append(
+                    {
+                        "step": i,
+                        "visited_states": trajectory.cell_covered[i],
+                        "episode": traj_idx,
+                    }
+                )
+
+    if not records:
+        return
+
+    df = pd.DataFrame(records)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    sns.lineplot(
+        data=df,
+        x="step",
+        y="visited_states",
+        estimator="mean",
+        errorbar="sd",
+        color=color or "#2eb88a",
+        linewidth=2,
+        label=label or None,
+        ax=ax,
     )
+
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xlabel("Environment Step", fontsize=12)
+    ax.set_ylabel("# Visited States", fontsize=12)
+    if label:
+        ax.legend(fontsize=10)
+    ax.grid(True, linestyle="--", alpha=0.4)
+    fig.tight_layout()
+
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
+
+
+def plot_cumulative_coverage_comparison(
+    buffers: dict[str, "TrajectoryBuffer"],
+    title: str = "Visited States per Episode",
+    save_path: str | Path | None = None,
+    subsample: int = 10,
+) -> None:
+    """Plot per-episode visited-state curves for multiple policies.
+
+    For each policy the function iterates over every trajectory in the
+    buffer and reads its ``cell_covered`` list (cumulative unique cells
+    at each within-episode step).  ``sns.lineplot`` then aggregates
+    across episodes, producing a **mean** line with a **±1 std** shaded
+    band — mirroring the paper's "# Visited States vs Environment Step"
+    figure.
+
+    Args:
+        buffers:    Mapping from policy name (e.g. ``"c-tec"``) to its
+                    :class:`TrajectoryBuffer`.
+        title:      Plot title.
+        save_path:  Destination file.  When *None* the figure is shown
+                    interactively.
+        subsample:  Record one data point every *subsample* steps to
+                    keep the DataFrame manageable for long episodes.
+    """
+    _POLICY_COLORS: dict[str, str] = {
+        "c-tec": "#2eb88a",
+        "random": "#808080",
+        "rnd": "#4c72b0",
+    }
+    _fallback_colors = sns.color_palette()
+
+    all_records: list[dict] = []
+    palette: dict[str, str] = {}
+    fallback_idx = 0
+
+    for policy, buf in buffers.items():
+        for traj_idx, trajectory in enumerate(buf.trajectories):
+            for i in range(len(trajectory.cell_covered)):
+                if i % subsample == 0 or i == len(trajectory.cell_covered) - 1:
+                    all_records.append(
+                        {
+                            "step": i,
+                            "visited_states": trajectory.cell_covered[i],
+                            "policy": policy,
+                            "episode": traj_idx,
+                        }
+                    )
+
+        color = _POLICY_COLORS.get(policy)
+        if color is None:
+            color = _fallback_colors[fallback_idx % len(_fallback_colors)]
+            fallback_idx += 1
+        palette[policy] = color
+
+    if not all_records:
+        return
+
+    df = pd.DataFrame(all_records)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    sns.lineplot(
+        data=df,
+        x="step",
+        y="visited_states",
+        hue="policy",
+        estimator="mean",
+        errorbar="sd",
+        palette=palette,
+        linewidth=2,
+        ax=ax,
+    )
+
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xlabel("Environment Step", fontsize=12)
+    ax.set_ylabel("# Visited States", fontsize=12)
+    ax.legend(title=None, fontsize=10)
+    ax.grid(True, linestyle="--", alpha=0.4)
+    fig.tight_layout()
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=150)
+        plt.close(fig)
+    else:
+        plt.show()
+
+
+if __name__ == "__main__":
+    from c_tec.buffer import TrajectoryBuffer
+
+    path = Path(__file__).parent.parent.parent / "results"
+    # Load saved buffers and compare
+    buffers = {}
+    for policy in ["random", "c-tec", "rnd"]:
+        for candidate in [
+            path / policy / "trajectory_buffer.pkl",
+            path / policy / "eval" / "trajectory_buffer.pkl",
+        ]:
+            if candidate.exists():
+                buffers[policy] = TrajectoryBuffer.load(candidate)
+                break
+    if buffers:
+        plot_cumulative_coverage_comparison(
+            buffers=buffers, title="C-TeC vs Random", subsample=1
+        )

@@ -11,10 +11,13 @@ import torch
 from c_tec.buffer import TrajectoryBuffer
 from c_tec.config import get_config
 from c_tec.envs import make_env
+from c_tec.evaluate import evaluate
 from c_tec.models import CTeCPolicy, RandomPolicy, RNDPolicy
 from c_tec.train import train
 from c_tec.utils.visualization import (
     plot_coverage_over_time,
+    plot_cumulative_coverage,
+    plot_cumulative_coverage_comparison,
     plot_heatmap_of_position,
     plot_heatmap_of_position_filtered,
     plot_reached_states,
@@ -48,7 +51,7 @@ def main():
         "--n-eval-episodes",
         type=int,
         default=5,
-        help="[PPO] Number of episodes per evaluation run.",
+        help="Number of episodes per evaluation run.",
     )
     parser.add_argument("--output-dir", type=str, default="results")
     parser.add_argument(
@@ -62,6 +65,17 @@ def main():
         type=str,
         default="c-tec_config.yaml",
         help="path to the yaml configuration file",
+    )
+    parser.add_argument(
+        "--evaluate",
+        action="store_true",
+        help="Run evaluation mode instead of training. Requires --checkpoint.",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Path to a .pt checkpoint file to load for evaluation.",
     )
 
     args = parser.parse_args()
@@ -140,57 +154,116 @@ def main():
     logger.info("Environment: MiniGrid-FourRooms-v0")
     logger.info(f"Reachable cells: {env.n_reachable}")
     logger.info(f"Action space: {n_actions} actions")
-    logger.info(
-        f"Running {CONFIG.training.num_episodes} episodes with {args.method} policy\n"
-    )
 
-    # --- Train ---
-    train_logger, last_stats = train(
-        env=env,
-        policy=policy,
-        trajectory_buffer=trajectory_buffer,
-        n_episodes=CONFIG.training.num_episodes,
-        seed=args.seed,
-        method=args.method,
-        log_interval=args.log_interval,
-        eval_interval=args.eval_interval,
-        n_eval_episodes=args.n_eval_episodes,
-        save_path=RESULTS_DIR,
-        checkpoint_interval=args.checkpoint_interval,
-    )
+    if args.evaluate:
+        # --- Evaluate ---
+        if args.method != "random":
+            if args.checkpoint is None:
+                raise RuntimeError(
+                    "--checkpoint is required when running in --evaluate mode."
+                )
 
-    # --- Save results ---
-    train_logger.save(RESULTS_DIR / "metrics.json")
+            checkpoint_path = Path(args.checkpoint)
+            if not checkpoint_path.exists():
+                raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    plot_coverage_over_time(
-        trajectory_buffer=trajectory_buffer,
-        n_reachable=env.n_reachable,
-        save_path=RESULTS_DIR / "coverage_over_time.png",
-    )
+            policy.load(checkpoint_path)
+            logger.info(f"Loaded checkpoint: {checkpoint_path}")
 
-    plot_heatmap_of_position(
-        reached_count=last_stats["reached_count"],
-        n_episodes=CONFIG.training.num_episodes,
-        reachable_cells=env.compute_reachable(),
-        starting_cell=last_stats["starting_pos"],
-        save_path=RESULTS_DIR / "heatmap_of_positions.png",
-    )
+        logger.info(
+            f"Running {args.n_eval_episodes} evaluation episodes "
+            f"with {args.method} policy\n"
+        )
 
-    plot_heatmap_of_position_filtered(
-        reached_count=last_stats["reached_count"],
-        n_episodes=CONFIG.training.num_episodes,
-        reachable_cells=env.compute_reachable(),
-        starting_cell=last_stats["starting_pos"],
-        save_path=RESULTS_DIR / "heatmap_filtered.png",
-        min_probability=0.1,
-    )
+        EVAL_DIR = RESULTS_DIR / "eval"
+        eval_logger, last_stats = evaluate(
+            env=env,
+            policy=policy,
+            n_episodes=args.n_eval_episodes,
+            seed=args.seed,
+        )
 
-    plot_reached_states(
-        train_logger=train_logger,
-        save_path=RESULTS_DIR / "reached_states.png",
-    )
+        # --- Save evaluation results ---
+        eval_logger.save(EVAL_DIR / "eval_metrics.json")
 
-    logger.info(f"Results saved to {RESULTS_DIR}")
+        eval_trajectory_buffer = last_stats["trajectory_buffer"]
+        eval_trajectory_buffer.save(EVAL_DIR / "trajectory_buffer.pkl")
+
+        plot_coverage_over_time(
+            trajectory_buffer=eval_trajectory_buffer,
+            n_reachable=env.n_reachable,
+            save_path=EVAL_DIR / "coverage_over_time.png",
+        )
+
+        plot_cumulative_coverage(
+            trajectory_buffer=eval_trajectory_buffer,
+            save_path=EVAL_DIR / "cumulative_visited_states.png",
+            label=args.method,
+            title=f"Cumulative Visited States ({args.method})",
+        )
+
+        logger.info(f"Evaluation results saved to {EVAL_DIR}")
+
+    else:
+        # --- Train ---
+        logger.info(
+            f"Running {CONFIG.training.num_episodes} episodes with {args.method} policy\n"
+        )
+
+        train_logger, last_stats = train(
+            env=env,
+            policy=policy,
+            trajectory_buffer=trajectory_buffer,
+            n_episodes=CONFIG.training.num_episodes,
+            seed=args.seed,
+            method=args.method,
+            log_interval=args.log_interval,
+            eval_interval=args.eval_interval,
+            n_eval_episodes=args.n_eval_episodes,
+            save_path=RESULTS_DIR,
+            checkpoint_interval=args.checkpoint_interval,
+        )
+
+        # --- Save results ---
+        train_logger.save(RESULTS_DIR / "metrics.json")
+        trajectory_buffer.save(RESULTS_DIR / "trajectory_buffer.pkl")
+
+        plot_coverage_over_time(
+            trajectory_buffer=trajectory_buffer,
+            n_reachable=env.n_reachable,
+            save_path=RESULTS_DIR / "coverage_over_time.png",
+        )
+
+        plot_heatmap_of_position(
+            reached_count=last_stats["reached_count"],
+            n_episodes=CONFIG.training.num_episodes,
+            reachable_cells=env.compute_reachable(),
+            starting_cell=last_stats["starting_pos"],
+            save_path=RESULTS_DIR / "heatmap_of_positions.png",
+        )
+
+        plot_heatmap_of_position_filtered(
+            reached_count=last_stats["reached_count"],
+            n_episodes=CONFIG.training.num_episodes,
+            reachable_cells=env.compute_reachable(),
+            starting_cell=last_stats["starting_pos"],
+            save_path=RESULTS_DIR / "heatmap_filtered.png",
+            min_probability=0.1,
+        )
+
+        plot_reached_states(
+            train_logger=train_logger,
+            save_path=RESULTS_DIR / "reached_states.png",
+        )
+
+        plot_cumulative_coverage(
+            trajectory_buffer=trajectory_buffer,
+            save_path=RESULTS_DIR / "cumulative_visited_states.png",
+            label=args.method,
+            title=f"Cumulative Visited States ({args.method})",
+        )
+
+        logger.info(f"Results saved to {RESULTS_DIR}")
 
 
 if __name__ == "__main__":

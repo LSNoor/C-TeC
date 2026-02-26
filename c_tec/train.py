@@ -8,7 +8,7 @@ import numpy as np
 from tqdm import trange
 
 from c_tec.buffer import RunningMeanStd, Trajectory, TrajectoryBuffer
-from c_tec.utils.logging import MetricsLogger
+from c_tec.utils.MetricsLogger import MetricsLogger
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +155,7 @@ def train(
             policy,
             trajectory_buffer,
             is_training=True,
-            seed=seed,
+            seed=seed + episode * 5 % 10,
         )
         total_steps += stats["episode_length"]
         last_stats = stats
