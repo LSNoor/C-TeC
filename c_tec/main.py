@@ -67,7 +67,7 @@ def main():
     args = parser.parse_args()
 
     CONFIG = get_config(args.config_file)
-    RESULTS_DIR = Path(__file__).parent.parent / args.output_dir
+    RESULTS_DIR = Path(__file__).parent.parent / args.output_dir / args.method
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -144,9 +144,6 @@ def main():
         f"Running {CONFIG.training.num_episodes} episodes with {args.method} policy\n"
     )
 
-    # --- Setup output directory ---
-    out = Path(args.output_dir) / args.method
-
     # --- Train ---
     train_logger, last_stats = train(
         env=env,
@@ -158,17 +155,17 @@ def main():
         log_interval=args.log_interval,
         eval_interval=args.eval_interval,
         n_eval_episodes=args.n_eval_episodes,
-        save_path=out,
+        save_path=RESULTS_DIR,
         checkpoint_interval=args.checkpoint_interval,
     )
 
     # --- Save results ---
-    train_logger.save(out / "metrics.json")
+    train_logger.save(RESULTS_DIR / "metrics.json")
 
     plot_coverage_over_time(
         trajectory_buffer=trajectory_buffer,
         n_reachable=env.n_reachable,
-        save_path=out / "coverage_over_time.png",
+        save_path=RESULTS_DIR / "coverage_over_time.png",
     )
 
     plot_heatmap_of_position(
@@ -176,7 +173,7 @@ def main():
         n_episodes=CONFIG.training.num_episodes,
         reachable_cells=env.compute_reachable(),
         starting_cell=last_stats["starting_pos"],
-        save_path=out / "heatmap_of_positions.png",
+        save_path=RESULTS_DIR / "heatmap_of_positions.png",
     )
 
     plot_heatmap_of_position_filtered(
@@ -184,16 +181,16 @@ def main():
         n_episodes=CONFIG.training.num_episodes,
         reachable_cells=env.compute_reachable(),
         starting_cell=last_stats["starting_pos"],
-        save_path=out / "heatmap_filtered.png",
+        save_path=RESULTS_DIR / "heatmap_filtered.png",
         min_probability=0.1,
     )
 
     plot_reached_states(
         train_logger=train_logger,
-        save_path=out / "reached_states.png",
+        save_path=RESULTS_DIR / "reached_states.png",
     )
 
-    logger.info(f"Results saved to {out}")
+    logger.info(f"Results saved to {RESULTS_DIR}")
 
 
 if __name__ == "__main__":
