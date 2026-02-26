@@ -15,26 +15,9 @@ def evaluate(
     policy,
     n_episodes: int,
     seed: int,
+    evaluate_multiple_seeds: bool = True,
 ) -> tuple[MetricsLogger, dict]:
-    """Run *n_episodes* of evaluation using a trained policy.
 
-    The policy's :meth:`select_action` is used in stochastic mode
-    (sampling from the learned distribution).  No gradient computation
-    or policy updates are performed.
-
-    Parameters
-    ----------
-    env          : Gymnasium environment (wrapped).
-    policy       : A loaded policy (CTeCPolicy, RNDPolicy, or RandomPolicy).
-    n_episodes   : Number of evaluation episodes to run.
-    seed         : Base random seed.  Each episode uses ``seed + episode_idx``
-                   for reproducible diversity across episodes.
-
-    Returns
-    -------
-    eval_logger : MetricsLogger populated with per-episode stats.
-    last_stats  : The raw stats dict from the final episode (used for plots).
-    """
     eval_logger = MetricsLogger()
     trajectory_buffer = TrajectoryBuffer()
     total_steps = 0
@@ -42,13 +25,18 @@ def evaluate(
 
     coverages: list[float] = []
 
+    if evaluate_multiple_seeds:
+        seed_list = [(s % 10) * 25 for s in [(seed + i) for i in range(n_episodes)]]
+    else:
+        seed_list = [seed for _ in range(n_episodes)]
+
     for episode in trange(1, n_episodes + 1, desc="Evaluating"):
         stats = collect_episode(
             env,
             policy,
             trajectory_buffer,
             is_training=False,
-            seed=seed,
+            seed=seed_list[episode - 1],
         )
         total_steps += stats["episode_length"]
         last_stats = stats

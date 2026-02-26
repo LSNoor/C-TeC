@@ -1,4 +1,4 @@
-training:
+env:
   episode_length: 3000
   num_episodes: 100
 

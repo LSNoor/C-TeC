@@ -97,42 +97,15 @@ def collect_episode(
 def train(
     env,
     policy,
-    trajectory_buffer: TrajectoryBuffer,
     n_episodes: int,
     seed: int,
     method: str,
     log_interval: int,
-    eval_interval: int,
-    n_eval_episodes: int,
     save_path: str | Path | None = None,
     checkpoint_interval: int = 0,
 ) -> tuple[MetricsLogger, dict]:
-    """
-    Run the full training loop.
 
-    Parameters
-    ----------
-    env                  : Gymnasium environment (wrapped).
-    policy               : RandomPolicy or PPOPolicy.
-    trajectory_buffer    : Buffer for full trajectories (C-TeC / visualizations).
-    n_episodes           : Total number of training episodes to run.
-    seed                 : Base random seed.
-    method               : "random" or "ppo".
-    log_interval         : Print summary every N episodes.
-    eval_interval        : Run evaluation every N episodes (PPO only; 0 to disable).
-    n_eval_episodes      : Number of episodes per evaluation run.
-    save_path            : Directory where checkpoints and the best/final model
-                           are written.  Saving is skipped when None or when the
-                           policy does not expose a ``save()`` method (e.g.
-                           RandomPolicy).
-    checkpoint_interval  : Save a periodic checkpoint every N episodes.
-                           0 disables periodic checkpoints.
-
-    Returns
-    -------
-    train_logger : MetricsLogger populated with per-episode stats.
-    last_stats   : The raw stats dict from the final episode (used for plots).
-    """
+    trajectory_buffer = TrajectoryBuffer()
     train_logger = MetricsLogger()
     total_steps = 0
     ppo_metrics: dict = {}
@@ -155,7 +128,7 @@ def train(
             policy,
             trajectory_buffer,
             is_training=True,
-            seed=seed + episode * 5 % 10,
+            seed=(seed + episode),
         )
         total_steps += stats["episode_length"]
         last_stats = stats
@@ -189,6 +162,16 @@ def train(
             trajectory.compute_intrinsic_rewards_rnd(
                 policy.rnd_model, gamma=policy.gamma, return_rms=return_rms
             )
+
+            # In RND, intrinsic rewards are normalized by the running std of returns.
+            # We clip them to [-5, 5] to prevent large spikes, following the original paper.
+            # We also add a small multiplier to ensure the rewards are large enough to overcome the entropy bonus.
+            RND_INTRINSIC_REWARD_COEF = 1000.0
+            trajectory.rewards = [
+                float(np.clip(r * RND_INTRINSIC_REWARD_COEF, -5.0, 5.0))
+                for r in trajectory.rewards
+            ]
+
             rnd_loss = policy.update_rnd(trajectory)
             logger.info(
                 f"mean reward (normalized): {np.array(trajectory.rewards).mean():.4f} "
@@ -252,27 +235,6 @@ def train(
                 f"Buffer: {trajectory_buffer.n_trajectories} traj" + ppo_str
             )
 
-        # # ── Periodic evaluation (PPO only) ───────────────────────────────
-        # # collect_episode with rollout_buffer=None → evaluation mode:
-        # # no rollout data stored, no PPO update, policy runs @no_grad.
-        # if method == "ppo" and eval_interval > 0 and episode % eval_interval == 0:
-        #     eval_coverages = []
-        #     for eval_ep in range(n_eval_episodes):
-        #         eval_stats = collect_episode(
-        #             env,
-        #             policy,
-        #             trajectory_buffer,
-        #             rollout_buffer=None,  # ← evaluation mode
-        #             seed=seed + episode + eval_ep,
-        #         )
-        #         eval_coverages.append(eval_stats["episode_coverage_pct"])
-        #     print(
-        #         f"  [Eval @ ep {episode:5d}] "
-        #         f"Coverage: {np.mean(eval_coverages):.1%} "
-        #         f"± {np.std(eval_coverages):.1%}"
-        #         f" over {n_eval_episodes} episodes"
-        #     )
-
     # ── Final model save ─────────────────────────────────────────────
     if can_save:
         assert save_path is not None
@@ -281,5 +243,7 @@ def train(
             episode=n_episodes,
             total_steps=total_steps,
         )
+
+    last_stats["trajectory_buffer"] = trajectory_buffer
 
     return train_logger, last_stats

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings
 
 
-class TrainingConfig(BaseModel):
+class EnvConfig(BaseModel):
     episode_length: int = Field(description="The length of each episode")
     num_episodes: int = Field(description="The number of episodes to run")
 
@@ -63,7 +63,7 @@ class RNDConfig(BaseModel):
 
 
 class Config(BaseSettings):
-    training: TrainingConfig
+    env: EnvConfig
     hyperparameters: HyperparametersConfig
     c_tec: CTeCConfig
     rnd: RNDConfig | None = Field(
@@ -75,7 +75,7 @@ class Config(BaseSettings):
     def set_minibatch_size(self) -> "Config":
         if self.hyperparameters.minibatch_size is None:
             self.hyperparameters.minibatch_size = (
-                self.training.episode_length // 3
+                    self.env.episode_length // 3
             )  # Optimal minibatch size around 1/3 of the episode length with the current config. Can be overridden by the user.
         return self
 
