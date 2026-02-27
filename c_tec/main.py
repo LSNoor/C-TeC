@@ -34,9 +34,15 @@ def get_policy(
     method: Literal["random", "c-tec", "rnd"],
     state_dim: int,
     action_dim: int,
-    CONFIG: Config,
     device,
+    CONFIG: Optional[Config] = None,
 ):
+
+    if CONFIG is None and method != "random":
+        raise ValueError(
+            "A configuration is required to get a policy other than random"
+        )
+
     match method:
         case "random":
             policy = RandomPolicy(action_dim)
@@ -159,7 +165,7 @@ def run_training(
     CONFIG: Config,
     save: bool = True,
     results_directory: Optional[Path] = None,
-    log_interval: int = 0,
+    log_interval: int = 1,
     checkpoint_interval: int = 0,
 ):
 
@@ -285,6 +291,7 @@ def main():
             log_interval=args.log_interval,
             save_path=RESULTS_DIR,
             checkpoint_interval=args.checkpoint_interval,
+            use_multiple_seeds=False,
         )
 
         # # --- Save results ---

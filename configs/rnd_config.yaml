@@ -28,3 +28,4 @@ rnd:
   predictor_lr: 5e-5
   hidden_dim: 128
   representation_dim: 128
+  intrinsic_reward_coeff: 1000.0

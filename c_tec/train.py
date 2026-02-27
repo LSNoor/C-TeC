@@ -9,6 +9,9 @@ from tqdm import trange
 
 from c_tec.buffer import RunningMeanStd, Trajectory, TrajectoryBuffer
 from c_tec.utils.MetricsLogger import MetricsLogger
+from c_tec.utils.visualization import plot_scalar_field
+import numpy as np
+
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +104,7 @@ def train(
     seed: int,
     method: str,
     log_interval: int,
+    use_multiple_seeds: bool = True,
     save_path: str | Path | None = None,
     checkpoint_interval: int = 0,
 ) -> tuple[MetricsLogger, dict]:
@@ -122,13 +126,18 @@ def train(
         checkpoints_dir = save_path / "checkpoints"
         checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
+    if use_multiple_seeds:
+        seed_list = [seed + episode for episode in range(n_episodes)]
+    else:
+        seed_list = [seed for _ in range(n_episodes)]
+
     for episode in trange(1, n_episodes + 1):
         stats = collect_episode(
             env,
             policy,
             trajectory_buffer,
             is_training=True,
-            seed=(seed + episode),
+            seed=seed_list[episode - 1],
         )
         total_steps += stats["episode_length"]
         last_stats = stats
@@ -144,10 +153,13 @@ def train(
                 policy.critic_encoder, gamma=policy.gamma
             )
             policy.update_contrastive(trajectory_buffer)
-            logger.info(
-                f"mean reward (normalized): {np.array(trajectory.rewards).mean():.4f} "
-                f"| return running std: {return_rms.std:.4f}"
-            )
+
+            if episode % log_interval == 0:
+
+                logger.info(
+                    f"mean reward (normalized): {np.array(trajectory.rewards).mean():.4f} "
+                    f"| return running std: {return_rms.std:.4f}"
+                )
 
             ppo_metrics = policy.update(trajectory, last_value=last_value)
 
@@ -173,14 +185,17 @@ def train(
             ]
 
             rnd_loss = policy.update_rnd(trajectory)
-            logger.info(
-                f"mean reward (normalized): {np.array(trajectory.rewards).mean():.4f} "
-                f"| RND predictor loss: {rnd_loss:.4f} "
-                f"| return running std: {return_rms.std:.4f}"
-            )
 
             ppo_metrics = policy.update(trajectory, last_value=last_value)
             ppo_metrics["rnd_loss"] = rnd_loss
+
+            if episode % log_interval == 0:
+
+                logger.info(
+                    f"mean reward (normalized): {np.array(trajectory.rewards).mean():.4f} "
+                    f"| RND predictor loss: {rnd_loss:.4f} "
+                    f"| return running std: {return_rms.std:.4f}"
+                )
 
         # ── Logging ─────────────────────────────────────────────────────
         stats_to_save = deepcopy(stats)

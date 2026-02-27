@@ -60,6 +60,9 @@ class RNDConfig(BaseModel):
     representation_dim: int = Field(
         description="Output embedding dimension shared by target and predictor"
     )
+    intrinsic_reward_coeff: float = Field(
+        description="An scaling multiplier to ensure the rewards are large enough to overcome the entropy bonus."
+    )
 
 
 class Config(BaseSettings):
@@ -75,12 +78,12 @@ class Config(BaseSettings):
     def set_minibatch_size(self) -> "Config":
         if self.hyperparameters.minibatch_size is None:
             self.hyperparameters.minibatch_size = (
-                    self.env.episode_length // 3
+                self.env.episode_length // 3
             )  # Optimal minibatch size around 1/3 of the episode length with the current config. Can be overridden by the user.
         return self
 
 
-def get_config(config_path: str) -> Config:
+def get_config(config_path: str | Path) -> Config:
 
     path_to_config = Path(__file__).parent.parent / "configs" / config_path
     if not path_to_config.exists():

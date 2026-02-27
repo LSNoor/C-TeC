@@ -548,6 +548,168 @@ def plot_cumulative_coverage_comparison(
         plt.show()
 
 
+def plot_scalar_field(
+    positions: list[tuple[int, int]] | np.ndarray,
+    scalars: list[float] | np.ndarray,
+    reachable_cells: set[tuple[int, int]],
+    starting_cell: tuple[int, int] | None = None,
+    save_path: str | Path | None = None,
+    title: str = "",
+    scalar_label: str = "Reward",
+    vmin: float = 0.0,
+    vmax: float = 1.0,
+    marker_size: float = 6,
+    cmap: str = "jet",
+    ax: plt.Axes | None = None,
+) -> plt.Figure | None:
+    """Scatter-plot of (row, col) positions on a grid, coloured by scalar.
+
+    Renders the environment grid with **walls shown in gray** and
+    **reachable cells as white**, then overlays each data point as a
+    small scatter dot coloured by its scalar value using a *jet*
+    colour-map (blue → cyan → green → yellow → orange → red → dark red).
+
+    Unlike a cell-averaged heatmap, every individual data point is
+    plotted (with slight random jitter within its cell), so the full
+    range of scalar values is preserved — matching the reward-landscape
+    visualisations in exploration papers.
+
+    Args:
+        positions:      Sequence of ``(row, col)`` grid coordinates.
+                        Accepted as a list of 2-tuples or ``(N, 2)``
+                        array of **integer** cell indices.
+        scalars:        Scalar value for every position (same length as
+                        *positions*).
+        reachable_cells: Set of all ``(row, col)`` positions that are
+                         physically reachable in the grid (used to draw
+                         the maze walls).
+        starting_cell:  Optional ``(row, col)`` of the agent's start
+                        position, highlighted with a black dot.
+        save_path:      Destination file for the figure.  When *None* the
+                        figure is returned (or shown interactively when
+                        *ax* is also *None*).
+        title:          Optional plot title.
+        scalar_label:   Label for the colour-bar (default ``"Reward"``).
+        vmin:           Lower bound of the colour-map range.
+        vmax:           Upper bound of the colour-map range.
+        marker_size:    Size of each scatter dot.
+        cmap:           Matplotlib colour-map name (default ``"jet"``).
+        ax:             An existing :class:`~matplotlib.axes.Axes` to
+                        draw into.  When *None* a new figure is created.
+
+    Returns:
+        The :class:`~matplotlib.figure.Figure` owning the axes.  When
+        *save_path* is given the figure is saved and closed, so ``None``
+        is returned instead.
+    """
+    positions = np.asarray(positions, dtype=int)
+    scalars = np.asarray(scalars, dtype=float)
+
+    if positions.ndim != 2 or positions.shape[1] != 2:
+        raise ValueError(
+            f"positions must have shape (N, 2), got {positions.shape}"
+        )
+    if scalars.shape[0] != positions.shape[0]:
+        raise ValueError(
+            "scalars length must match the number of positions "
+            f"({scalars.shape[0]} != {positions.shape[0]})"
+        )
+
+    # ── grid dimensions ──────────────────────────────────────────────
+    max_r = max(r for r, c in reachable_cells) + 2
+    max_c = max(c for r, c in reachable_cells) + 2
+
+    # ── figure / axes ────────────────────────────────────────────────
+    created_fig = ax is None
+    if created_fig:
+        fig, ax = plt.subplots(figsize=(max_c, max_r))
+    else:
+        fig = ax.figure
+
+    # Layer 1: gray background for walls (full grid)
+    bg = np.full((max_r, max_c), np.nan)
+    sns.heatmap(
+        np.zeros((max_r, max_c)),
+        annot=False,
+        cmap=ListedColormap(["lightgray"]),
+        cbar=False,
+        square=True,
+        linewidths=0.5,
+        linecolor="gray",
+        ax=ax,
+    )
+
+    # Layer 2: white for reachable cells
+    reachable_bg = np.full((max_r, max_c), np.nan)
+    for r, c in reachable_cells:
+        reachable_bg[r, c] = 0.0
+    sns.heatmap(
+        reachable_bg,
+        annot=False,
+        cmap=ListedColormap(["white"]),
+        cbar=False,
+        square=True,
+        linewidths=0.5,
+        linecolor="gray",
+        mask=np.isnan(reachable_bg),
+        ax=ax,
+    )
+
+    # Layer 3: scatter individual data points with jitter
+    # In heatmap coordinates: x = col + 0.5 (centre), y = row + 0.5
+    rng = np.random.default_rng(42)
+    jitter = 0.35  # stay well inside the cell
+    xs = positions[:, 1].astype(float) + 0.5 + rng.uniform(-jitter, jitter, len(positions))
+    ys = positions[:, 0].astype(float) + 0.5 + rng.uniform(-jitter, jitter, len(positions))
+
+    # Sort by scalar so high-value dots are drawn on top
+    order = np.argsort(scalars)
+    xs = xs[order]
+    ys = ys[order]
+    scalars_sorted = scalars[order]
+
+    sc = ax.scatter(
+        xs, ys,
+        c=scalars_sorted,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        s=marker_size,
+        edgecolors="none",
+        zorder=3,
+    )
+
+    cbar = fig.colorbar(sc, ax=ax)
+    cbar.set_label(scalar_label, fontsize=12)
+    cbar.ax.tick_params(labelsize=10)
+
+    # Highlight starting cell
+    if starting_cell is not None:
+        sr, sc_col = starting_cell
+        ax.plot(
+            sc_col + 0.5, sr + 0.5,
+            marker="o", color="black", markersize=8, zorder=5,
+        )
+
+    if title:
+        ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xlabel("Column", fontsize=12)
+    ax.set_ylabel("Row", fontsize=12)
+    ax.tick_params(labelsize=10)
+    fig.tight_layout()
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=150)
+        plt.close(fig)
+        return None
+
+    if created_fig:
+        return fig
+    return fig
+
+
 if __name__ == "__main__":
     from c_tec.buffer import TrajectoryBuffer
 
