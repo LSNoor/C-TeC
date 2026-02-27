@@ -23,6 +23,7 @@ c_tec:
   hidden_dim: 256
   representation_dim: 32
   gamma: 0.8
+  sampling_strategy: geometric
 
 rnd:
   predictor_lr: 5e-5

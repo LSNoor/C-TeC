@@ -2,7 +2,10 @@ import minigrid  # noqa
 
 import gymnasium as gym
 import numpy as np
+import logging
 from collections import defaultdict
+
+logger = logging.getLogger(__name__)
 
 
 class PositionObsWrapper(gym.ObservationWrapper):
@@ -74,15 +77,20 @@ class StateCoverageTracker(gym.Wrapper):
         if self._fixed_seed is not None:
             kwargs["seed"] = self._fixed_seed
         obs, info = self.env.reset(**kwargs)
+        
         # Clear per-episode tracking on each reset
         self.episode_visited = set()
         # Compute reachable once
         if self._reachable is None:
             self._reachable = self.compute_reachable()
-            for pos in self._reachable:
-                self.reached_count[pos] = self.reached_count.get(pos, 0)
         self._record_position()
         return obs, info
+
+
+    def reset_reached_count(self):
+        """Reset the reached_count to start fresh coverage tracking."""
+        # Clear reached_count completely to start fresh
+        self.reached_count.clear()
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
@@ -90,11 +98,14 @@ class StateCoverageTracker(gym.Wrapper):
         info["episode_coverage"] = len(self.episode_visited)
         info["episode_coverage_pct"] = len(self.episode_visited) / self.n_reachable
         if terminated or truncated:
-            info["reached_count"] = self.reached_count
+            info["reached_count"] = dict(self.reached_count)
+            
         return obs, reward, terminated, truncated, info
 
     def _record_position(self):
-        pos = tuple(self.unwrapped.agent_pos)
+        # Fix type consistency: ensure position is always (int, int) tuple
+        agent_pos = self.unwrapped.agent_pos
+        pos = (int(agent_pos[0]), int(agent_pos[1]))
 
         if pos not in self.episode_visited:
             self.reached_count[pos] = self.reached_count.get(pos, 0) + 1
@@ -104,7 +115,8 @@ class StateCoverageTracker(gym.Wrapper):
     @property
     def n_reachable(self) -> int:
         """Count reachable (non-wall) cells by inspecting the grid."""
-        self._reachable = self.compute_reachable()
+        if self._reachable is None:
+            self._reachable = self.compute_reachable()
         return len(self._reachable)
 
     def compute_reachable(self) -> set[tuple[int, int]]:
@@ -116,11 +128,11 @@ class StateCoverageTracker(gym.Wrapper):
                 cell = grid.get(x, y)
                 if cell is None:
                     # Empty cell — agent can stand here
-                    reachable.add((x, y))
+                    reachable.add((int(x), int(y)))
                 elif cell.type == "goal":
-                    reachable.add((x, y))
+                    reachable.add((int(x), int(y)))
                 elif cell.type == "door":
-                    reachable.add((x, y))
+                    reachable.add((int(x), int(y)))
                 # walls, etc. are excluded
         return reachable
 

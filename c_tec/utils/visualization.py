@@ -12,8 +12,7 @@ from matplotlib.colors import ListedColormap
 
 def plot_coverage_over_time(
     trajectory_buffer,
-    n_reachable: int,
-    save_path: str | Path,
+    save_path: str | Path | None = None,
 ):
 
     records = []
@@ -22,22 +21,26 @@ def plot_coverage_over_time(
             if i % 10 == 0:
                 records.append(
                     {
-                        "step": i,
-                        "value": trajectory.cell_covered_pct[i],
+                        "environment step": i,
+                        "(%) cell covered": trajectory.cell_covered_pct[i],
                         "trajectory": traj_idx,
                     }
                 )
 
     df = pd.DataFrame(records)
 
-    sns.lineplot(data=df, x="step", y="value", errorbar="ci")
+    sns.lineplot(data=df, x="environment step", y="(%) cell covered", errorbar="ci")
     plt.title("Trajectory States")
     plt.tight_layout()
 
-    save_path = Path(save_path)
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_path)
-    plt.close()
+    if save_path is not None:
+
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
 
 
 def plot_heatmap_of_position(
@@ -45,7 +48,7 @@ def plot_heatmap_of_position(
     n_episodes: int,
     reachable_cells: set[tuple[int, int]],
     starting_cell: tuple[int, int],
-    save_path: str | Path,
+    save_path: str | Path | None,
 ):
     max_r = max(r for r, c in reachable_cells) + 2
     max_c = max(c for r, c in reachable_cells) + 2
@@ -56,7 +59,7 @@ def plot_heatmap_of_position(
 
     unreachable_mask = np.isnan(prob)
 
-    fig, ax = plt.subplots(figsize=(max_c, max_r))
+    fig, ax = plt.subplots(figsize=(max_c / 2, max_r / 2))
 
     ax.set_title("Position Reached Probability", fontsize=16)
     ax.set_xlabel("Column", fontsize=14)
@@ -103,8 +106,11 @@ def plot_heatmap_of_position(
     ax.set_xlabel("Column")
     ax.set_ylabel("Row")
     fig.tight_layout()
-    fig.savefig(save_path, dpi=150)
-    plt.close(fig)
+    if save_path is not None:
+        fig.savefig(save_path, dpi=150)
+        plt.close(fig)
+    else:
+        fig.show()
 
 
 def plot_heatmap_of_position_filtered(
@@ -112,7 +118,7 @@ def plot_heatmap_of_position_filtered(
     n_episodes: int,
     reachable_cells: set[tuple[int, int]],
     starting_cell: tuple[int, int],
-    save_path: str | Path,
+    save_path: str | Path | None,
     min_probability: float = 0.1,
 ):
     """Heatmap showing only cells with reach probability above a threshold.
@@ -145,7 +151,7 @@ def plot_heatmap_of_position_filtered(
     # Anything that is NaN (unreachable OR below threshold) is masked
     hidden_mask = np.isnan(prob)
 
-    fig, ax = plt.subplots(figsize=(max_c, max_r))
+    fig, ax = plt.subplots(figsize=(8, 5))
 
     # Gray background for all cells (unreachable + below threshold)
     sns.heatmap(
@@ -189,8 +195,11 @@ def plot_heatmap_of_position_filtered(
     ax.set_ylabel("Row", fontsize=14)
     ax.tick_params(labelsize=12)
     fig.tight_layout()
-    fig.savefig(save_path, dpi=150)
-    plt.close(fig)
+    if save_path is not None:
+        fig.savefig(save_path, dpi=150)
+        plt.close(fig)
+    else:
+        plt.show()
 
 
 def plot_coverage_comparison(
@@ -324,22 +333,11 @@ def plot_coverage_comparison(
 
 def plot_reached_states(
     train_logger,
-    save_path: str | Path,
+    save_path: str | Path | None,
     window: int = 10,
     title: str = "Reached States Over Training",
 ) -> None:
-    """Plot the number of reached (visited) states per episode against total env timesteps.
 
-    Uses ``sns.lineplot`` over a smoothed coverage series so the trend is
-    easy to read.  Raw per-episode values are shown as a faded scatter.
-
-    Args:
-        train_logger: A :class:`MetricsLogger` whose history contains
-                      ``total_steps`` and ``episode_coverage`` per episode.
-        save_path:    Destination file for the figure.
-        window:       Rolling-window width used for smoothing (episodes).
-        title:        Plot title.
-    """
     total_steps = train_logger.get_series("total_steps")
     episode_coverage = train_logger.get_series("episode_coverage")
 
@@ -383,10 +381,14 @@ def plot_reached_states(
     ax.grid(True, linestyle="--", alpha=0.4)
     fig.tight_layout()
 
-    save_path = Path(save_path)
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(save_path, dpi=150)
-    plt.close(fig)
+    if save_path is not None:
+
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=150)
+        plt.close(fig)
+    else:
+        plt.show()
 
 
 def plot_cumulative_coverage(
@@ -485,6 +487,8 @@ def plot_cumulative_coverage_comparison(
     """
     _POLICY_COLORS: dict[str, str] = {
         "c-tec": "#2eb88a",
+        "long-horizon-c-tec": "#EB2E0C",
+        "uniform-c-tec": "#EB2E0C",
         "random": "#808080",
         "rnd": "#4c72b0",
     }
@@ -606,9 +610,7 @@ def plot_scalar_field(
     scalars = np.asarray(scalars, dtype=float)
 
     if positions.ndim != 2 or positions.shape[1] != 2:
-        raise ValueError(
-            f"positions must have shape (N, 2), got {positions.shape}"
-        )
+        raise ValueError(f"positions must have shape (N, 2), got {positions.shape}")
     if scalars.shape[0] != positions.shape[0]:
         raise ValueError(
             "scalars length must match the number of positions "
@@ -659,8 +661,16 @@ def plot_scalar_field(
     # In heatmap coordinates: x = col + 0.5 (centre), y = row + 0.5
     rng = np.random.default_rng(42)
     jitter = 0.35  # stay well inside the cell
-    xs = positions[:, 1].astype(float) + 0.5 + rng.uniform(-jitter, jitter, len(positions))
-    ys = positions[:, 0].astype(float) + 0.5 + rng.uniform(-jitter, jitter, len(positions))
+    xs = (
+        positions[:, 1].astype(float)
+        + 0.5
+        + rng.uniform(-jitter, jitter, len(positions))
+    )
+    ys = (
+        positions[:, 0].astype(float)
+        + 0.5
+        + rng.uniform(-jitter, jitter, len(positions))
+    )
 
     # Sort by scalar so high-value dots are drawn on top
     order = np.argsort(scalars)
@@ -669,7 +679,8 @@ def plot_scalar_field(
     scalars_sorted = scalars[order]
 
     sc = ax.scatter(
-        xs, ys,
+        xs,
+        ys,
         c=scalars_sorted,
         cmap=cmap,
         vmin=vmin,
@@ -687,8 +698,12 @@ def plot_scalar_field(
     if starting_cell is not None:
         sr, sc_col = starting_cell
         ax.plot(
-            sc_col + 0.5, sr + 0.5,
-            marker="o", color="black", markersize=8, zorder=5,
+            sc_col + 0.5,
+            sr + 0.5,
+            marker="o",
+            color="black",
+            markersize=8,
+            zorder=5,
         )
 
     if title:

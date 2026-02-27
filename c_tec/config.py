@@ -48,6 +48,10 @@ class CTeCConfig(BaseModel):
     gamma: float = Field(
         description="This gamma parameter used in the discounted state occupancy measure. Used to sample future states using the GEOM(1-gamma) distribution"
     )
+    sampling_strategy: Literal["geometric", "uniform"] = Field(
+        default="geometric",
+        description="The strategy used to sample future states. Either 'geometric' or 'uniform'."
+    )
 
 
 class RNDConfig(BaseModel):

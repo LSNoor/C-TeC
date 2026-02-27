@@ -6,12 +6,11 @@ For the random baseline, we simply store trajectories to verify
 the buffer works correctly before plugging in contrastive learning.
 """
 
-from __future__ import annotations
-
 import pickle
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import torch
@@ -168,12 +167,20 @@ class Trajectory:
         self,
         t: int,
         gamma: float,
+        sampling_strategy: Literal["geometric", "uniform"] = "geometric",
     ) -> int:
         T = len(self.states)
 
-        # Geometric offset, clipped to remaining episode length
         max_delta = T - t - 1
-        delta = min(np.random.geometric(1 - gamma), max_delta)
+        if sampling_strategy == "geometric":
+            # Geometric offset, clipped to remaining episode length
+            delta = min(np.random.geometric(1 - gamma), max_delta)
+        elif sampling_strategy == "uniform":
+            # Uniform offset
+            delta = np.random.randint(1, max_delta + 1)
+        else:
+            raise ValueError(f"Unknown sampling strategy: {sampling_strategy}")
+
         delta = max(delta, 1)
         return delta  # ensure at least 1 step into future
 
@@ -182,6 +189,7 @@ class Trajectory:
         self,
         critic_encoder,
         gamma: float,
+        sampling_strategy: Literal["geometric", "uniform"] = "geometric",
     ):
         """
         Compute intrinsic rewards and optionally normalize them.
@@ -194,8 +202,8 @@ class Trajectory:
         H = actions.shape[0]
 
         for t in range(H - 1):
-            # Sample single future state via geometric distribution
-            delta = self.sample_delta(t, gamma)
+            # Sample single future state
+            delta = self.sample_delta(t, gamma, sampling_strategy)
             sf = states[t + delta]
 
             c = critic_encoder(
@@ -294,9 +302,10 @@ class TrajectoryBuffer:
         batch_size: int,
         gamma,
         device: torch.device = torch.device("cpu"),
+        sampling_strategy: Literal["geometric", "uniform"] = "geometric",
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Sample (s_t, a_t, s_f) tuples with geometric future offsets.
+        Sample (s_t, a_t, s_f) tuples with geometric or uniform future offsets.
 
         The geometric distribution Δ ~ Geom(1 - γ) means:
             - P(Δ = 1) = 1 - γ       (most likely: immediate next state)
@@ -318,9 +327,16 @@ class TrajectoryBuffer:
             # Sample timestep (need at least one future step)
             t = np.random.randint(T - 1)
 
-            # Geometric offset, clipped to remaining episode length
             max_delta = T - t - 1
-            delta = min(np.random.geometric(1 - gamma), max_delta)
+            if sampling_strategy == "geometric":
+                # Geometric offset, clipped to remaining episode length
+                delta = min(np.random.geometric(1 - gamma), max_delta)
+            elif sampling_strategy == "uniform":
+                # Uniform offset
+                delta = np.random.randint(1, max_delta + 1)
+            else:
+                raise ValueError(f"Unknown sampling strategy: {sampling_strategy}")
+
             delta = max(delta, 1)  # ensure at least 1 step into future
 
             states.append(traj.states[t])

@@ -1,24 +1,21 @@
 import argparse
 import logging
 from pathlib import Path
+from typing import Literal
 from typing import Optional
+from typing import Tuple
+
 import minigrid  # noqa
 import numpy as np
 import torch
-from typing import Literal
+
 from c_tec.buffer import TrajectoryBuffer
 from c_tec.config import get_config, Config
 from c_tec.envs import make_env
 from c_tec.evaluate import evaluate
 from c_tec.models import CTeCPolicy, RandomPolicy, RNDPolicy
 from c_tec.train import train
-from c_tec.utils.visualization import (
-    plot_coverage_over_time,
-    plot_cumulative_coverage,
-    plot_heatmap_of_position,
-    plot_heatmap_of_position_filtered,
-    plot_reached_states,
-)
+from c_tec.utils.MetricsLogger import MetricsLogger
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -56,6 +53,7 @@ def get_policy(
                 sf_hidden_dim=CONFIG.c_tec.hidden_dim,
                 repr_dim=CONFIG.c_tec.representation_dim,
                 similarity_function=CONFIG.c_tec.similarity_function,
+                sampling_strategy=CONFIG.c_tec.sampling_strategy,
                 policy_lr=CONFIG.hyperparameters.policy_lr,
                 critic_lr=CONFIG.hyperparameters.critic_lr,
                 gamma=CONFIG.c_tec.gamma,
@@ -109,19 +107,23 @@ def run_evaluation(
     policy,
     env,
     seed: int,
-    CONFIG: Config,
+    num_episodes: int,
+    evaluate_multiple_seeds: bool = True,
+    from_checkpoint: bool = True,
     checkpoint_path: Optional[str] = None,
     save: bool = True,
-    results_directory: Path = None,
+    results_directory: Path | str | None = None,
     eval_directory: Path = None,
-) -> TrajectoryBuffer:
+) -> Tuple[MetricsLogger, dict]:
+
+    env.reset_reached_count()
 
     if save and (results_directory is None or eval_directory is None):
         raise RuntimeError(
             "To save an evaluation run, the result and evaluation directory must be specified."
         )
 
-    if method != "random":
+    if from_checkpoint == True and method != "random":
         if checkpoint_path is None:
             raise RuntimeError(
                 "--checkpoint is required when running in --evaluate mode."
@@ -135,15 +137,15 @@ def run_evaluation(
         logger.info(f"Loaded checkpoint: {checkpoint_path}")
 
     logger.info(
-        f"Running {CONFIG.env.n_eval_episodes} evaluation episodes "
-        f"with {method} policy\n"
+        f"Running {num_episodes} evaluation episodes " f"with {method} policy\n"
     )
 
     eval_logger, last_stats = evaluate(
         env=env,
         policy=policy,
-        n_episodes=CONFIG.env.n_eval_episodes,
+        n_episodes=num_episodes,
         seed=seed,
+        evaluate_multiple_seeds=evaluate_multiple_seeds,
     )
 
     # --- Save evaluation results ---
@@ -154,7 +156,7 @@ def run_evaluation(
         eval_trajectory_buffer.save(eval_directory / "trajectory_buffer.pkl")
 
         logger.info(f"Evaluation results saved to {eval_directory}")
-    return last_stats["trajectory_buffer"]
+    return eval_logger, last_stats
 
 
 def run_training(
@@ -162,19 +164,21 @@ def run_training(
     policy,
     env,
     seed: int,
-    CONFIG: Config,
+    num_episodes: int,
     save: bool = True,
     results_directory: Optional[Path] = None,
     log_interval: int = 1,
     checkpoint_interval: int = 0,
 ):
 
-    logger.info(f"Running {CONFIG.env.num_episodes} episodes with {method} policy\n")
+    env.reset_reached_count()
+
+    logger.info(f"Running {num_episodes} episodes with {method} policy\n")
 
     train_logger, last_stats = train(
         env=env,
         policy=policy,
-        n_episodes=CONFIG.env.num_episodes,
+        n_episodes=num_episodes,
         seed=seed,
         method=method,
         log_interval=log_interval,
@@ -182,11 +186,15 @@ def run_training(
         checkpoint_interval=checkpoint_interval,
     )
 
+    trajectory_buffer = last_stats["trajectory_buffer"]
+
     # --- Save results ---
     if save:
-        trajectory_buffer = last_stats["trajectory_buffer"]
+
         train_logger.save(results_directory / "metrics.json")
         trajectory_buffer.save(results_directory / "trajectory_buffer.pkl")
+
+    return trajectory_buffer, train_logger
 
 
 def main():
@@ -334,6 +342,10 @@ def main():
         # )
         #
         # logger.info(f"Results saved to {RESULTS_DIR}")
+
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":

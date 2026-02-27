@@ -293,6 +293,7 @@ class CTeCPolicy(PPOPolicy):
         batch_size: int,
         max_grad_norm: float,
         similarity_function: Literal["l1", "l2"],
+        sampling_strategy: Literal["geometric", "uniform"] = "geometric",
         device: torch.device = (
             torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         ),
@@ -328,6 +329,7 @@ class CTeCPolicy(PPOPolicy):
         )
 
         self.contrastive_batch_size = contrastive_batch_size
+        self.sampling_strategy = sampling_strategy
 
     # ------------------------------------------------------------------
     # Persistence (extends PPOPolicy)
@@ -372,7 +374,7 @@ class CTeCPolicy(PPOPolicy):
     def update_contrastive(self, trajectory_buffer: TrajectoryBuffer):
 
         s, a, s_f = trajectory_buffer.sample_with_futures(
-            batch_size=self.contrastive_batch_size, gamma=self.gamma, device=self.device
+            batch_size=self.contrastive_batch_size, gamma=self.gamma, device=self.device, sampling_strategy=self.sampling_strategy
         )
         self.critic_encoder.update(s, a, s_f)
 

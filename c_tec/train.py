@@ -131,7 +131,7 @@ def train(
     else:
         seed_list = [seed for _ in range(n_episodes)]
 
-    for episode in trange(1, n_episodes + 1):
+    for episode in trange(1, n_episodes + 1, desc="Training"):
         stats = collect_episode(
             env,
             policy,
@@ -150,7 +150,7 @@ def train(
 
             trajectory = trajectory_buffer.get_last()
             trajectory.compute_intrinsic_rewards(
-                policy.critic_encoder, gamma=policy.gamma
+                policy.critic_encoder, gamma=policy.gamma, sampling_strategy=policy.sampling_strategy
             )
             policy.update_contrastive(trajectory_buffer)
 
@@ -158,7 +158,6 @@ def train(
 
                 logger.info(
                     f"mean reward (normalized): {np.array(trajectory.rewards).mean():.4f} "
-                    f"| return running std: {return_rms.std:.4f}"
                 )
 
             ppo_metrics = policy.update(trajectory, last_value=last_value)
