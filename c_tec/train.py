@@ -9,9 +9,9 @@ from tqdm import trange
 
 from c_tec.buffer import RunningMeanStd, Trajectory, TrajectoryBuffer
 from c_tec.utils.MetricsLogger import MetricsLogger
-from c_tec.utils.visualization import plot_scalar_field
+from c_tec.utils.visualization import plot_heatmap_of_rewards
 import numpy as np
-
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,7 @@ def train(
     use_multiple_seeds: bool = True,
     save_path: str | Path | None = None,
     checkpoint_interval: int = 0,
+    plot_rewards_interval: int = 0,
 ) -> tuple[MetricsLogger, dict]:
 
     trajectory_buffer = TrajectoryBuffer()
@@ -150,7 +151,9 @@ def train(
 
             trajectory = trajectory_buffer.get_last()
             trajectory.compute_intrinsic_rewards(
-                policy.critic_encoder, gamma=policy.gamma, sampling_strategy=policy.sampling_strategy
+                policy.critic_encoder,
+                gamma=policy.gamma,
+                sampling_strategy=policy.sampling_strategy,
             )
             policy.update_contrastive(trajectory_buffer)
 
@@ -161,6 +164,21 @@ def train(
                 )
 
             ppo_metrics = policy.update(trajectory, last_value=last_value)
+
+            trajectory_positions = np.array([s[:2] for s in trajectory.states])
+
+            trajectory_reward = np.array(trajectory.rewards)
+
+            if plot_rewards_interval != 0 and episode % plot_rewards_interval == 0:
+
+                plot_heatmap_of_rewards(
+                    trajectory_positions=trajectory_positions,
+                    trajectory_rewards=trajectory_reward,
+                    reachable_cells=env.compute_reachable(),
+                    starting_cell=stats["starting_pos"],
+                    step=env.spec.max_episode_steps * episode,
+                    save_path=None,
+                )
 
         elif method == "rnd":
             # Same episode-level structure as C-TeC:
@@ -179,7 +197,7 @@ def train(
             # We also add a small multiplier to ensure the rewards are large enough to overcome the entropy bonus.
             RND_INTRINSIC_REWARD_COEF = 1000.0
             trajectory.rewards = [
-                float(np.clip(r * RND_INTRINSIC_REWARD_COEF, -5.0, 5.0))
+                float(np.clip(r * RND_INTRINSIC_REWARD_COEF, 0, 5.0))
                 for r in trajectory.rewards
             ]
 

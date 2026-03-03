@@ -165,10 +165,12 @@ def run_training(
     env,
     seed: int,
     num_episodes: int,
+    use_multiple_seeds: bool = True,
     save: bool = True,
     results_directory: Optional[Path] = None,
     log_interval: int = 1,
     checkpoint_interval: int = 0,
+    plot_rewards_interval: int = 0,
 ):
 
     env.reset_reached_count()
@@ -184,6 +186,8 @@ def run_training(
         log_interval=log_interval,
         save_path=results_directory if save else None,
         checkpoint_interval=checkpoint_interval,
+        use_multiple_seeds=use_multiple_seeds,
+        plot_rewards_interval=plot_rewards_interval,
     )
 
     trajectory_buffer = last_stats["trajectory_buffer"]
@@ -194,7 +198,7 @@ def run_training(
         train_logger.save(results_directory / "metrics.json")
         trajectory_buffer.save(results_directory / "trajectory_buffer.pkl")
 
-    return trajectory_buffer, train_logger
+    return train_logger, last_stats
 
 
 def main():
@@ -243,6 +247,13 @@ def main():
         default=None,
         help="Path to a .pt checkpoint file to load for evaluation.",
     )
+    parser.add_argument(
+        "--plot-rewards-interval",
+        type=int,
+        default=0,
+        help="The interval between plotting rewards.",
+    )
+    parser.add_argument("--use-one-seed", action="store_true")
 
     args = parser.parse_args()
 
@@ -273,16 +284,18 @@ def main():
     logger.info(f"Action space: {n_actions} actions")
 
     if args.mode == "evaluation":
-        trajectory_buffer = run_evaluation(
+        eval_logger, last_stats = run_evaluation(
             method=args.method,
             policy=policy,
             env=env,
-            checkpoint_path=args.checkpoint,
             seed=args.seed,
-            CONFIG=CONFIG,
+            num_episodes=CONFIG.env.num_episodes,
+            evaluate_multiple_seeds=not args.use_one_seed,
+            from_checkpoint=True,
+            checkpoint_path=args.checkpoint,
             save=True,
-            eval_directory=EVAL_DIR,
             results_directory=RESULTS_DIR,
+            eval_directory=EVAL_DIR,
         )
 
     else:
@@ -290,16 +303,19 @@ def main():
         logger.info(
             f"Running {CONFIG.env.num_episodes} episodes with {args.method} policy\n"
         )
-        train(
-            env=env,
-            policy=policy,
-            n_episodes=CONFIG.env.num_episodes,
-            seed=args.seed,
+
+        train_logger, last_stats = run_training(
             method=args.method,
+            policy=policy,
+            env=env,
+            seed=args.seed,
+            num_episodes=CONFIG.env.num_episodes,
+            save=True,
+            results_directory=RESULTS_DIR,
             log_interval=args.log_interval,
-            save_path=RESULTS_DIR,
             checkpoint_interval=args.checkpoint_interval,
-            use_multiple_seeds=False,
+            use_multiple_seeds=not args.use_one_seed,
+            plot_rewards_interval=args.plot_rewards_interval,
         )
 
         # # --- Save results ---
@@ -342,10 +358,6 @@ def main():
         # )
         #
         # logger.info(f"Results saved to {RESULTS_DIR}")
-
-
-if __name__ == "__main__":
-    main()
 
 
 if __name__ == "__main__":
