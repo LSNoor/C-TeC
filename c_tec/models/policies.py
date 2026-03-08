@@ -1,18 +1,16 @@
 import logging
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from pydantic.types import ImportString
 
 from c_tec.buffer import Trajectory, TrajectoryBuffer
-
+from c_tec.config import Config
 from .actor_critic_models import ActorModel, CriticModel
-from .encoders import CriticEncoder
-from .loss import CRLLoss
+from .contrastive_encoders import CriticEncoder
 from .rnd import RNDModel
 
 logger = logging.getLogger(__name__)
@@ -374,7 +372,10 @@ class CTeCPolicy(PPOPolicy):
     def update_contrastive(self, trajectory_buffer: TrajectoryBuffer):
 
         s, a, s_f = trajectory_buffer.sample_with_futures(
-            batch_size=self.contrastive_batch_size, gamma=self.gamma, device=self.device, sampling_strategy=self.sampling_strategy
+            batch_size=self.contrastive_batch_size,
+            gamma=self.gamma,
+            device=self.device,
+            sampling_strategy=self.sampling_strategy,
         )
         self.critic_encoder.update(s, a, s_f)
 
@@ -518,3 +519,78 @@ class RNDPolicy(PPOPolicy):
             f"Checkpoint loaded ← {path}  (episode {episode}, steps {total_steps})"
         )
         return episode, total_steps
+
+
+def get_policy(
+    method: Literal["random", "c-tec", "rnd"],
+    state_dim: int,
+    action_dim: int,
+    device,
+    CONFIG: Optional[Config] = None,
+):
+
+    if CONFIG is None and method != "random":
+        raise ValueError(
+            "A configuration is required to get a policy other than random"
+        )
+
+    match method:
+        case "random":
+            policy = RandomPolicy(action_dim)
+
+        case "c-tec":
+            policy = CTeCPolicy(
+                state_dim=state_dim,
+                action_dim=action_dim,
+                hidden_dim=CONFIG.hyperparameters.hidden_dim,
+                sa_hidden_dim=CONFIG.c_tec.hidden_dim,
+                sf_hidden_dim=CONFIG.c_tec.hidden_dim,
+                repr_dim=CONFIG.c_tec.representation_dim,
+                similarity_function=CONFIG.c_tec.similarity_function,
+                sampling_strategy=CONFIG.c_tec.sampling_strategy,
+                policy_lr=CONFIG.hyperparameters.policy_lr,
+                critic_lr=CONFIG.hyperparameters.critic_lr,
+                gamma=CONFIG.c_tec.gamma,
+                gae_lambda=CONFIG.hyperparameters.gae_lambda,
+                max_grad_norm=CONFIG.hyperparameters.max_grad_norm,
+                clip_eps=CONFIG.hyperparameters.clip_epsilon,
+                value_coef=CONFIG.hyperparameters.value_coef,
+                entropy_coef=CONFIG.hyperparameters.entropy_coef,
+                n_epochs=CONFIG.hyperparameters.update_epoch,
+                batch_size=CONFIG.hyperparameters.minibatch_size,
+                device=device,
+                contrastive_lr=CONFIG.c_tec.contrastive_lr,
+                contrastive_batch_size=CONFIG.c_tec.batch_size,
+                logsumexp_penalty=CONFIG.c_tec.logsumexp_penalty,
+            )
+
+        case "rnd":
+            if CONFIG.rnd is None:
+                raise RuntimeError(
+                    "The [rnd] section is missing from the config file. "
+                    "Add it before running with --method rnd."
+                )
+            policy = RNDPolicy(
+                state_dim=state_dim,
+                action_dim=action_dim,
+                hidden_dim=CONFIG.hyperparameters.hidden_dim,
+                rnd_hidden_dim=CONFIG.rnd.hidden_dim,
+                rnd_repr_dim=CONFIG.rnd.representation_dim,
+                rnd_lr=CONFIG.rnd.predictor_lr,
+                policy_lr=CONFIG.hyperparameters.policy_lr,
+                critic_lr=CONFIG.hyperparameters.critic_lr,
+                gamma=CONFIG.hyperparameters.discount_factor,
+                gae_lambda=CONFIG.hyperparameters.gae_lambda,
+                max_grad_norm=CONFIG.hyperparameters.max_grad_norm,
+                clip_eps=CONFIG.hyperparameters.clip_epsilon,
+                value_coef=CONFIG.hyperparameters.value_coef,
+                entropy_coef=CONFIG.hyperparameters.entropy_coef,
+                n_epochs=CONFIG.hyperparameters.update_epoch,
+                batch_size=CONFIG.hyperparameters.minibatch_size,
+                device=device,
+            )
+
+        case _:
+            raise RuntimeError(f"Unknown method: {method}")
+
+    return policy

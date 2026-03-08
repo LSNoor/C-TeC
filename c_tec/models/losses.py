@@ -6,14 +6,6 @@ import torch.nn.functional as F
 class CRLLoss(nn.Module):
     """
     Contrastive Representation Learning loss (Eq. 2 from the paper).
-
-    Keeps `temperature` as a learnable nn.Parameter registered through nn.Module,
-    following PyTorch best practice for losses with learnable parameters.
-
-    The critic_encoder is passed at forward() time rather than stored as an
-    attribute, which avoids a circular submodule reference
-    (CriticEncoder → CRLLoss → CriticEncoder) that would cause infinite
-    recursion during .to(device).
     """
 
     def __init__(self, logsumexp_penalty: float):

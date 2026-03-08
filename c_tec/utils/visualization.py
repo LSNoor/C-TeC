@@ -59,7 +59,7 @@ def plot_heatmap_of_position(
 
     unreachable_mask = np.isnan(prob)
 
-    fig, ax = plt.subplots(figsize=(max_c / 2, max_r / 2))
+    fig, ax = plt.subplots(figsize=(4, 2.5))
 
     ax.set_title("Position Reached Probability", fontsize=16)
     ax.set_xlabel("Column", fontsize=14)
@@ -151,7 +151,7 @@ def plot_heatmap_of_position_filtered(
     # Anything that is NaN (unreachable OR below threshold) is masked
     hidden_mask = np.isnan(prob)
 
-    fig, ax = plt.subplots(figsize=(max_c / 2, max_r / 2))
+    fig, ax = plt.subplots(figsize=(4, 2.5))
 
     # Gray background for all cells (unreachable + below threshold)
     sns.heatmap(

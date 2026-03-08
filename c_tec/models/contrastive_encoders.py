@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Literal
-from .loss import CRLLoss
+from .losses import CRLLoss
 
 
 class CriticEncoder(nn.Module):

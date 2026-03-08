@@ -62,7 +62,7 @@ class StateCoverageTracker(gym.Wrapper):
     Tracks unique (x, y) positions visited across all episodes.
 
     Used as the primary evaluation metric, matching the paper's
-    "number of unique discretized states" (Section 6.2).
+    "number of unique discretized states".
     """
 
     def __init__(self, env: gym.Env, fixed_seed: int | None = None):
@@ -77,7 +77,7 @@ class StateCoverageTracker(gym.Wrapper):
         if self._fixed_seed is not None:
             kwargs["seed"] = self._fixed_seed
         obs, info = self.env.reset(**kwargs)
-        
+
         # Clear per-episode tracking on each reset
         self.episode_visited = set()
         # Compute reachable once
@@ -85,7 +85,6 @@ class StateCoverageTracker(gym.Wrapper):
             self._reachable = self.compute_reachable()
         self._record_position()
         return obs, info
-
 
     def reset_reached_count(self):
         """Reset the reached_count to start fresh coverage tracking."""
@@ -99,11 +98,10 @@ class StateCoverageTracker(gym.Wrapper):
         info["episode_coverage_pct"] = len(self.episode_visited) / self.n_reachable
         if terminated or truncated:
             info["reached_count"] = dict(self.reached_count)
-            
+
         return obs, reward, terminated, truncated, info
 
     def _record_position(self):
-        # Fix type consistency: ensure position is always (int, int) tuple
         agent_pos = self.unwrapped.agent_pos
         pos = (int(agent_pos[0]), int(agent_pos[1]))
 
@@ -169,9 +167,6 @@ def make_env(
         seed:      Optional seed for deterministic resets.
         max_steps: Maximum steps per episode (truncation limit).
                    If None, the environment's built-in default is used.
-
-    Wrapper order matters:
-        MiniGrid -> NoGoalTermination -> PositionObs -> OneHotAction -> CoverageTracker
     """
     if max_steps is not None:
         # Override both Gymnasium's TimeLimit wrapper AND MiniGrid's internal

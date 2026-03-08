@@ -4,3 +4,9 @@
 
 # Trajectory buffer pickles (large binary files)
 *.pkl
+
+# Model checkpoints (large binary files)
+*.pt
+
+# PDF papers (copyright / large files)
+*.pdf

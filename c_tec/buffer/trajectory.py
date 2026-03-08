@@ -107,12 +107,7 @@ class Trajectory:
         gae_lambda: float = 0.95,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Generalized Advantage Estimation (Schulman et al., 2016, Eq. 11):
-
-            δ_t = r_t + γ·V(s_{t+1})·(1 - done_t) - V(s_t)
-            Â_t = Σ_{l≥0} (γλ)^l · δ_{t+l}
-
-        Returns advantages (normalized) and lambda-returns for the value loss.
+        Generalized Advantage Estimation
 
         Args:
             last_value: V(s_T), set to 0.0 for terminal episodes,
@@ -144,10 +139,6 @@ class Trajectory:
         ret_tensor = torch.tensor(returns)
 
         return adv_tensor, ret_tensor
-
-    # ------------------------------------------------------------------
-    # Tensor conversion
-    # ------------------------------------------------------------------
 
     def to_tensors(self, device: torch.device) -> dict[str, torch.Tensor]:
         """Pack raw lists into tensors on the target device."""
@@ -185,31 +176,55 @@ class Trajectory:
         return delta  # ensure at least 1 step into future
 
     @torch.no_grad()
-    def compute_intrinsic_rewards(
+    def compute_intrinsic_rewards_c_tec(
         self,
         critic_encoder,
         gamma: float,
         sampling_strategy: Literal["geometric", "uniform"] = "geometric",
+        variance_reduction: bool = True,
     ):
         """
-        Compute intrinsic rewards and optionally normalize them.
+        Compute intrinsic rewards for the C-TeC method.
 
-
+        Args:
+            variance_reduction: Use the weighted-sum estimator from Eq. 12
+                instead of a single sampled future state.
         """
         tensors = self.to_tensors(device=critic_encoder.device)
         states = tensors["states"]
         actions = tensors["actions"]
         H = actions.shape[0]
 
-        for t in range(H - 1):
-            # Sample single future state
-            delta = self.sample_delta(t, gamma, sampling_strategy)
-            sf = states[t + delta]
+        if variance_reduction:
+            for t in range(H - 1):
+                s_t = states[t].unsqueeze(0)
+                a_t = actions[t].unsqueeze(0)
 
-            c = critic_encoder(
-                states[t].unsqueeze(0), actions[t].unsqueeze(0), sf.unsqueeze(0)
-            )
-            self.rewards[t] = -c.item()  # -(-distance) = +distance
+                future_states = states[t + 1 : H]
+                n_futures = future_states.shape[0]
+
+                s_t_exp = s_t.expand(n_futures, -1)
+                a_t_exp = a_t.expand(n_futures, -1)
+
+                c_vals = critic_encoder(s_t_exp, a_t_exp, future_states)
+
+                exponents = torch.arange(
+                    1, n_futures + 1, device=states.device, dtype=states.dtype
+                )
+                weights = gamma**exponents
+                normalizer = (1.0 - gamma ** (H - t)) / (1.0 - gamma)
+
+                weighted_sum = (weights * c_vals).sum()
+                self.rewards[t] = -(weighted_sum / normalizer).item()
+        else:
+            for t in range(H - 1):
+                delta = self.sample_delta(t, gamma, sampling_strategy)
+                sf = states[t + delta]
+
+                c = critic_encoder(
+                    states[t].unsqueeze(0), actions[t].unsqueeze(0), sf.unsqueeze(0)
+                )
+                self.rewards[t] = -c.item()
 
     @torch.no_grad()
     def compute_intrinsic_rewards_rnd(
@@ -280,10 +295,6 @@ class TrajectoryBuffer:
     def total_steps(self) -> int:
         return sum(len(t) for t in self.trajectories)
 
-    # ------------------------------------------------------------------
-    # Persistence
-    # ------------------------------------------------------------------
-
     def save(self, path: str | Path) -> None:
         """Serialize the buffer to disk using pickle."""
         path = Path(path)
@@ -306,15 +317,8 @@ class TrajectoryBuffer:
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Sample (s_t, a_t, s_f) tuples with geometric or uniform future offsets.
-
-        The geometric distribution Δ ~ Geom(1 - γ) means:
-            - P(Δ = 1) = 1 - γ       (most likely: immediate next state)
-            - P(Δ = k) = γ^{k-1}(1-γ) (decays exponentially)
-            - E[Δ] = 1 / (1 - γ)     (e.g., 100 for γ=0.99)
-
-        This weighting ensures the contrastive model learns about
-        both short-term and long-term temporal relationships.
         """
+
         n_trajs = len(self.trajectories)
         states, actions, futures = [], [], []
 

@@ -6,17 +6,7 @@ import torch.optim as optim
 
 
 class ObsRunningMeanStd(nn.Module):
-    """Running mean/std for observation normalization (torch version).
-
-    Uses Welford's online algorithm.  Registered as an ``nn.Module`` so
-    that its buffers are automatically included in ``state_dict()`` and
-    follow ``.to(device)`` calls.
-
-    Following the RND paper (Burda et al., 2018, Section 2.4),
-    observations are whitened (subtract mean, divide by std) and then
-    clipped to [-clip, clip] before being fed to the target and
-    predictor networks.
-    """
+    """Running mean/std for observation normalization (torch version)."""
 
     mean: torch.Tensor
     var: torch.Tensor
@@ -57,10 +47,6 @@ class ObsRunningMeanStd(nn.Module):
 class RNDTarget(nn.Module):
     """Fixed randomly-initialized target network f(s).
 
-    Maps states to a fixed embedding. Never trained — its random weights
-    define the target distribution that the predictor must learn to match.
-    Prediction error on unseen states serves as the intrinsic novelty signal.
-
     A shallow (one hidden layer) architecture is used deliberately: the
     target only needs to define a stable, non-trivial embedding space.
     """
@@ -88,11 +74,6 @@ class RNDTarget(nn.Module):
 
 class RNDPredictor(nn.Module):
     """Trainable predictor network f_hat(s).
-
-    Learns to predict the fixed target network's output. The prediction
-    error ||f_hat(s) - f(s)||^2 is high for novel states and low for
-    familiar ones, providing a natural novelty signal that decays as the
-    agent revisits states.
 
     Slightly deeper than the target (two hidden layers vs. one) following
     the original RND paper's recommendation that the predictor should be
@@ -123,10 +104,7 @@ class RNDModel(nn.Module):
     """Random Network Distillation model with observation normalization.
 
     Maintains a running mean/std of observations (``obs_rms``) and
-    whitens + clips inputs to [-5, 5] before feeding them to the target
-    and predictor, following Burda et al. 2018 §2.4.  This prevents the
-    networks from being dominated by high-magnitude state components
-    (e.g. ``x, y ∈ [0, 18]`` vs direction one-hot ``∈ {0, 1}``).
+    whitens + clips inputs to [0, 5] before feeding them to the target.
 
     ``obs_rms`` is an ``nn.Module`` whose buffers are part of the
     ``state_dict``, so they are saved/loaded with checkpoints and move
@@ -148,8 +126,6 @@ class RNDModel(nn.Module):
         self.predictor = RNDPredictor(state_dim, hidden_dim, repr_dim)
         self.device = device
         self.to(device)
-        # Optimizer is created AFTER .to(device) so all parameter tensors
-        # (predictor weights) are already on the target device.
         # Only predictor parameters are optimized; target is frozen.
         self.optimizer = optim.Adam(self.predictor.parameters(), lr=lr)
 
@@ -158,16 +134,6 @@ class RNDModel(nn.Module):
         """Compute per-state intrinsic rewards (prediction errors).
 
         Observations are normalized using the *current* running statistics
-        (no update here — statistics are only updated during training via
-        ``update_obs_stats``).
-
-        Runs under torch.no_grad() — inference only, no gradient tracking.
-
-        Args:
-            states: (B, state_dim) float tensor already on self.device.
-
-        Returns:
-            rewards: (B,) tensor of ||f_hat(s) - f(s)||^2 values.
         """
         self.predictor.eval()
         normed = self.obs_rms.normalize(states)
@@ -193,11 +159,6 @@ class RNDModel(nn.Module):
         """Train the predictor on a (mini-)batch of already-collected states.
 
         Observations are normalized using the current running statistics
-        (which should have been updated beforehand via
-        ``update_obs_stats``).
-
-        The target output is detached to make the gradient flow explicit:
-        only the predictor is updated, never the target.
 
         Args:
             states: (B, state_dim) float tensor already on self.device.
@@ -207,7 +168,7 @@ class RNDModel(nn.Module):
         """
         normed = self.obs_rms.normalize(states)
         # .detach() is redundant (target has requires_grad=False) but makes
-        # the intent explicit: gradients flow only through the predictor.
+        # the intent explicit.
         target_features = self.target(normed).detach()
         predicted_features = self.predictor(normed)
         loss = ((predicted_features - target_features) ** 2).sum(dim=-1).mean()

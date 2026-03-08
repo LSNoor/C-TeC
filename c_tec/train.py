@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 import logging
 from copy import deepcopy
 from pathlib import Path
+from typing import Literal, Optional
 
 import numpy as np
 from tqdm import trange
@@ -10,8 +9,6 @@ from tqdm import trange
 from c_tec.buffer import RunningMeanStd, Trajectory, TrajectoryBuffer
 from c_tec.utils.MetricsLogger import MetricsLogger
 from c_tec.utils.visualization import plot_heatmap_of_rewards
-import numpy as np
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -20,47 +17,15 @@ def collect_episode(
     env,
     policy,
     trajectory_buffer: TrajectoryBuffer,
-    is_training: bool,
     seed: int | None = None,
 ) -> dict:
     """
     Run one episode and collect statistics.
-
-    This single function handles both training and evaluation:
-
-    Training (PPO)
-        Pass a RolloutBuffer.  At each step the function stores
-        (pre-step obs, action, log_prob, value, reward, done) so that
-        PPOPolicy.update() can compute GAE and run the clipped-surrogate
-        update immediately after this call.
-
-    Evaluation / random policy
-        Pass rollout_buffer=None.  Only environment statistics are
-        collected; no gradient information is stored.  Works with both
-
-    The full trajectory (post-step observations) is always added to
-    trajectory_buffer for C-TeC's geometric future sampling and the
-    coverage visualizations.
-
-    Returns
-    -------
-    dict with keys:
-        episode_length      : int
-        episode_coverage    : int   (cells visited)
-        episode_coverage_pct: float
-        reached_count       : dict  (cell → visit count)
-        starting_pos        : tuple
-        last_obs            : np.ndarray  (terminal / truncated observation)
-        terminated          : bool  (False if episode was truncated)
     """
     obs, _ = env.reset(seed=seed)
     trajectory = Trajectory()
     steps = 0
     starting_pos = (obs[0], obs[1])
-    terminated = False
-    truncated = False
-
-    is_training = is_training
     done = False
 
     while not done:
@@ -115,7 +80,7 @@ def train(
     total_steps = 0
     ppo_metrics: dict = {}
     last_stats: dict = {}
-    return_rms = RunningMeanStd()  # running return normalizer (std-only, RND-style)
+    return_rms = RunningMeanStd()  # running return normalizer
 
     # ── Saving setup ─────────────────────────────────────────────────
     can_save = save_path is not None and hasattr(policy, "save")
@@ -137,7 +102,6 @@ def train(
             env,
             policy,
             trajectory_buffer,
-            is_training=True,
             seed=seed_list[episode - 1],
         )
         total_steps += stats["episode_length"]
@@ -150,7 +114,7 @@ def train(
             _, _, last_value = policy.select_action(stats["last_obs"])
 
             trajectory = trajectory_buffer.get_last()
-            trajectory.compute_intrinsic_rewards(
+            trajectory.compute_intrinsic_rewards_c_tec(
                 policy.critic_encoder,
                 gamma=policy.gamma,
                 sampling_strategy=policy.sampling_strategy,
@@ -193,7 +157,7 @@ def train(
             )
 
             # In RND, intrinsic rewards are normalized by the running std of returns.
-            # We clip them to [-5, 5] to prevent large spikes, following the original paper.
+            # We clip them to [0, 5] to prevent large spikes, following the original paper.
             # We also add a small multiplier to ensure the rewards are large enough to overcome the entropy bonus.
             RND_INTRINSIC_REWARD_COEF = 1000.0
             trajectory.rewards = [
@@ -277,5 +241,47 @@ def train(
         )
 
     last_stats["trajectory_buffer"] = trajectory_buffer
+
+    return train_logger, last_stats
+
+
+def run_training(
+    method: Literal["random", "c-tec", "rnd"],
+    policy,
+    env,
+    seed: int,
+    num_episodes: int,
+    use_multiple_seeds: bool = True,
+    save: bool = True,
+    results_directory: Optional[Path] = None,
+    log_interval: int = 1,
+    checkpoint_interval: int = 0,
+    plot_rewards_interval: int = 0,
+):
+
+    env.reset_reached_count()
+
+    logger.info(f"Running {num_episodes} episodes with {method} policy\n")
+
+    train_logger, last_stats = train(
+        env=env,
+        policy=policy,
+        n_episodes=num_episodes,
+        seed=seed,
+        method=method,
+        log_interval=log_interval,
+        save_path=results_directory if save else None,
+        checkpoint_interval=checkpoint_interval,
+        use_multiple_seeds=use_multiple_seeds,
+        plot_rewards_interval=plot_rewards_interval,
+    )
+
+    trajectory_buffer = last_stats["trajectory_buffer"]
+
+    # --- Save results ---
+    if save:
+
+        train_logger.save(results_directory / "metrics.json")
+        trajectory_buffer.save(results_directory / "trajectory_buffer.pkl")
 
     return train_logger, last_stats

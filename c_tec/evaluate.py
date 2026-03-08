@@ -1,4 +1,6 @@
 import logging
+from pathlib import Path
+from typing import Literal, Optional, Tuple
 
 import numpy as np
 from tqdm import trange
@@ -35,7 +37,6 @@ def evaluate(
             env,
             policy,
             trajectory_buffer,
-            is_training=False,
             seed=seed_list[episode - 1],
         )
         total_steps += stats["episode_length"]
@@ -68,7 +69,64 @@ def evaluate(
     )
 
     # Attach the trajectory buffer to last_stats so the caller can use it
-    # for visualizations (coverage_over_time needs it).
+    # for visualizations
     last_stats["trajectory_buffer"] = trajectory_buffer
 
+    return eval_logger, last_stats
+
+
+def run_evaluation(
+    method: Literal["random", "c-tec", "rnd"],
+    policy,
+    env,
+    seed: int,
+    num_episodes: int,
+    evaluate_multiple_seeds: bool = True,
+    from_checkpoint: bool = True,
+    checkpoint_path: Optional[str] = None,
+    save: bool = True,
+    results_directory: Path | str | None = None,
+    eval_directory: Path = None,
+) -> Tuple[MetricsLogger, dict]:
+
+    env.reset_reached_count()
+
+    if save and (results_directory is None or eval_directory is None):
+        raise RuntimeError(
+            "To save an evaluation run, the result and evaluation directory must be specified."
+        )
+
+    if from_checkpoint == True and method != "random":
+        if checkpoint_path is None:
+            raise RuntimeError(
+                "--checkpoint is required when running in --evaluate mode."
+            )
+
+        checkpoint_path = results_directory / checkpoint_path
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+        policy.load(checkpoint_path)
+        logger.info(f"Loaded checkpoint: {checkpoint_path}")
+
+    logger.info(
+        f"Running {num_episodes} evaluation episodes " f"with {method} policy\n"
+    )
+
+    eval_logger, last_stats = evaluate(
+        env=env,
+        policy=policy,
+        n_episodes=num_episodes,
+        seed=seed,
+        evaluate_multiple_seeds=evaluate_multiple_seeds,
+    )
+
+    # --- Save evaluation results ---
+    if save:
+        eval_logger.save(eval_directory / "eval_metrics.json")
+
+        eval_trajectory_buffer = last_stats["trajectory_buffer"]
+        eval_trajectory_buffer.save(eval_directory / "trajectory_buffer.pkl")
+
+        logger.info(f"Evaluation results saved to {eval_directory}")
     return eval_logger, last_stats
