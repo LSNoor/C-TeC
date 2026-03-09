@@ -181,7 +181,8 @@ class Trajectory:
         critic_encoder,
         gamma: float,
         sampling_strategy: Literal["geometric", "uniform"] = "geometric",
-        variance_reduction: bool = True,
+        variance_reduction: bool = False,
+        normalize_variance_reduction: bool = False,
     ):
         """
         Compute intrinsic rewards for the C-TeC method.
@@ -212,7 +213,11 @@ class Trajectory:
                     1, n_futures + 1, device=states.device, dtype=states.dtype
                 )
                 weights = gamma**exponents
-                normalizer = (1.0 - gamma ** (H - t)) / (1.0 - gamma)
+                normalizer = (
+                    (1.0 - gamma ** (H - t)) / (1.0 - gamma)
+                    if normalize_variance_reduction
+                    else 1.0
+                )
 
                 weighted_sum = (weights * c_vals).sum()
                 self.rewards[t] = -(weighted_sum / normalizer).item()

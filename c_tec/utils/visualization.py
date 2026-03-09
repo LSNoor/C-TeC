@@ -1,9 +1,14 @@
 """Coverage heatmap and training curve plots."""
 
 import json
+import warnings
 from pathlib import Path
 
+import matplotlib
 import matplotlib.pyplot as plt
+
+# Suppress matplotlib's non-interactive backend warning
+warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -59,7 +64,7 @@ def plot_heatmap_of_position(
 
     unreachable_mask = np.isnan(prob)
 
-    fig, ax = plt.subplots(figsize=(4, 2.5))
+    fig, ax = plt.subplots(figsize=(8, 5))
 
     ax.set_title("Position Reached Probability", fontsize=16)
     ax.set_xlabel("Column", fontsize=14)
@@ -151,7 +156,7 @@ def plot_heatmap_of_position_filtered(
     # Anything that is NaN (unreachable OR below threshold) is masked
     hidden_mask = np.isnan(prob)
 
-    fig, ax = plt.subplots(figsize=(4, 2.5))
+    fig, ax = plt.subplots(figsize=(8, 5))
 
     # Gray background for all cells (unreachable + below threshold)
     sns.heatmap(
@@ -265,7 +270,7 @@ def plot_heatmap_of_rewards(
     cbar.set_label("Reward value", fontsize=14)
 
     sr, sc = starting_cell
-    ax.add_patch(plt.Rectangle((sc, sr), 1, 1, fill=True, edgecolor="blue", lw=2))
+    ax.add_patch(plt.Rectangle((sc, sr), 1, 1, fill=True, color="purple", lw=2))
 
     ax.set_title(
         f"Scaled rewards at step:{step}",

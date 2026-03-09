@@ -26,7 +26,7 @@ An independent re-implementation of **C-TeC: Curiosity-Driven Exploration via Te
 curl -fsSL https://pixi.sh/install.sh | bash
 
 # Windows (PowerShell)
-iwr -useb https://pixi.sh/install.ps1 | iex
+powershell -ExecutionPolicy Bypass -c "irm -useb https://pixi.sh/install.ps1 | iex"
 ```
 
 **2. Clone the repository:**
@@ -99,7 +99,7 @@ That's it, all dependencies (including PyTorch with CUDA 12.8 and the project it
 
 ### Training
 
-To train the C-TeC method.
+To train the C-TeC method:
 
 ```bash
 python c_tec/main.py --config configs/c-tec_config.yaml
@@ -110,6 +110,24 @@ To train the RND baseline:
 ```bash
 python c_tec/main.py --config configs/rnd_config.yaml
 ```
+
+### Evaluation
+
+To evaluate a trained C-TeC model:
+
+```bash
+python c_tec/main.py --config configs/c-tec_config.yaml --mode evaluation --checkpoint checkpoints/checkpoint_final.pt
+```
+
+To evaluate a trained RND model:
+
+```bash
+python c_tec/main.py --config configs/rnd_config.yaml --mode evaluation --checkpoint checkpoints/checkpoint_final.pt
+```
+
+Evaluation results will be saved to `results/{method}/eval/`, including:
+- `eval_metrics.json` - Episode-by-episode coverage and statistics
+- `trajectory_buffer.pkl` - Collected trajectories for visualization
 
 ### Demo Notebook
 

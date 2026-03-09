@@ -123,9 +123,7 @@ def train(
 
             if episode % log_interval == 0:
 
-                logger.info(
-                    f"mean reward (normalized): {np.array(trajectory.rewards).mean():.4f} "
-                )
+                logger.info(f"mean reward: {np.array(trajectory.rewards).mean():.4f} ")
 
             ppo_metrics = policy.update(trajectory, last_value=last_value)
 

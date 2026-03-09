@@ -43,7 +43,6 @@ def evaluate(
         last_stats = stats
         coverages.append(stats["episode_coverage_pct"])
 
-        # Log per-episode stats (excluding non-serialisable keys)
         eval_logger.log(
             episode=episode,
             total_steps=total_steps,
