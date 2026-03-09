@@ -6,10 +6,10 @@ An independent re-implementation of **C-TeC: Curiosity-Driven Exploration via Te
 
 **All results, comparisons (C-TeC vs RND vs Random), and analysis are in the demo notebook:**
 
-| | |
-|---|---|
-| 📓 **View on GitHub** | [`demo.ipynb`](demo.ipynb) *(rendered inline — no setup needed)* |
-| 🔍 **View on nbviewer** | [![nbviewer](https://img.shields.io/badge/render-nbviewer-orange?logo=jupyter)](https://nbviewer.org/github/LSNoor/C-TeC/blob/main/demo.ipynb) *(better rendering)* |
+
+
+ [`demo.ipynb`](demo.ipynb) *(rendered inline — no setup needed)*
+
 
 ---
 
