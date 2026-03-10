@@ -71,7 +71,11 @@ def main():
         default=0,
         help="The interval between plotting rewards.",
     )
-    parser.add_argument("--use-one-seed", action="store_true")
+    parser.add_argument(
+        "--use-one-seed",
+        action="store_true",
+        help="Whether to use a fixed seed across multiple episodes.",
+    )
 
     args = parser.parse_args()
 

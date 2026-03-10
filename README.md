@@ -1,6 +1,6 @@
 # C-TeC
 
-An independent re-implementation of **C-TeC: Curiosity-Driven Exploration via Temporal Contrastive Learning** ([paper](https://openreview.net/forum?id=gqjT7g5ZRa)), built entirely from scratch by reading the paper alone — no reference to the authors' original codebase was used at any point.
+An independent re-implementation of **C-TeC: Curiosity-Driven Exploration via Temporal Contrastive Learning** ([paper](https://openreview.net/forum?id=gqjT7g5ZRa)), built from scratch in PyTorch. No reference to the authors' original codebase was used at any point.
 
 ## Results
 
@@ -56,7 +56,7 @@ pixi shell
 Or run a command directly without activating:
 
 ```bash
-pixi run python c_tec/main.py --config configs/c-tec_config.yaml
+pixi run python c_tec/main.py --config c-tec_config.yaml
 ```
 
 ---
@@ -102,13 +102,13 @@ That's it, all dependencies (including PyTorch with CUDA 12.8 and the project it
 To train the C-TeC method:
 
 ```bash
-python c_tec/main.py --config configs/c-tec_config.yaml
+python c_tec/main.py --config c-tec_config.yaml
 ```
 
 To train the RND baseline:
 
 ```bash
-python c_tec/main.py --config configs/rnd_config.yaml
+python c_tec/main.py --config rnd_config.yaml
 ```
 
 ### Evaluation
@@ -116,18 +116,24 @@ python c_tec/main.py --config configs/rnd_config.yaml
 To evaluate a trained C-TeC model:
 
 ```bash
-python c_tec/main.py --config configs/c-tec_config.yaml --mode evaluation --checkpoint checkpoints/checkpoint_final.pt
+python c_tec/main.py --config c-tec_config.yaml --mode evaluation --checkpoint best_model.pt
 ```
 
 To evaluate a trained RND model:
 
 ```bash
-python c_tec/main.py --config configs/rnd_config.yaml --mode evaluation --checkpoint checkpoints/checkpoint_final.pt
+python c_tec/main.py --config rnd_config.yaml --mode evaluation --checkpoint best_model.pt
 ```
 
 Evaluation results will be saved to `results/{method}/eval/`, including:
 - `eval_metrics.json` - Episode-by-episode coverage and statistics
 - `trajectory_buffer.pkl` - Collected trajectories for visualization
+
+> Note: You can add your own config under `/configs` to evaluate on more steps using the `episode_length` parameter
+
+> Note: You can run `python c_tec/main.py --help` to get an explanation of all the possible arguments.
+
+To plot visualizations load your trajectory buffer using `TrajectoryBuffer.load(path_to_your_buffer)`. The plot functions are available in `/utils/visualization`. Examples are available in the demo notebook.
 
 ### Demo Notebook
 
