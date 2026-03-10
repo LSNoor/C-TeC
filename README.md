@@ -10,7 +10,7 @@ An independent re-implementation of **C-TeC: Curiosity-Driven Exploration via Te
 
  [`demo.ipynb`](demo.ipynb) *(rendered inline — no setup needed)*
 
-
+> **If you get an error loading the notebook, log in to GitHub, it should solve the issue.**
 ---
 
 ## Installation
