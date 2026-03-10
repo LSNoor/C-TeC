@@ -11,7 +11,7 @@ from c_tec.buffer import Trajectory, TrajectoryBuffer
 from c_tec.config import Config
 from .actor_critic_models import ActorModel, CriticModel
 from .contrastive_encoders import CriticEncoder
-from .rnd import RNDModel
+from .rnd_encoders import RNDModel
 
 logger = logging.getLogger(__name__)
 

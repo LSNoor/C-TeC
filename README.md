@@ -129,7 +129,7 @@ Evaluation results will be saved to `results/{method}/eval/`, including:
 - `eval_metrics.json` - Episode-by-episode coverage and statistics
 - `trajectory_buffer.pkl` - Collected trajectories for visualization
 
-> Note: You can add your own config under `/configs` to evaluate on more steps using the `episode_length` parameter
+> Note: You can add your own config under `/configs` to evaluate on more steps using the `episode_length` parameter.
 
 > Note: You can run `python c_tec/main.py --help` to get an explanation of all the possible arguments.
 

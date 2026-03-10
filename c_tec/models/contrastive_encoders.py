@@ -32,15 +32,9 @@ class CriticEncoder(nn.Module):
             state_dim=state_dim, repr_dim=repr_dim, hidden_dim=sf_hidden_dim
         )
         self.ord = 2 if norm_type == "l2" else 1
-        # CRLLoss must be registered as a submodule BEFORE .to(device)
-        # so its learnable temperature parameter is also moved to device.
-        # The encoder is NOT stored inside CRLLoss to avoid a circular
-        # submodule reference; it is passed at forward() time instead.
         self.loss = CRLLoss(logsumexp_penalty=logsumexp_penalty)
         self.device = device
         self.to(device)
-        # Optimizer is created AFTER .to(device) so all parameter tensors
-        # (including CRLLoss.temperature) are already on the target device.
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
     def forward(self, states: torch.Tensor, actions: torch.Tensor, future_states):

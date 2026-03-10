@@ -1,11 +1,3 @@
-"""
-Trajectory buffer storing complete episodes.
-
-Needed later for C-TeC's geometric future state sampling.
-For the random baseline, we simply store trajectories to verify
-the buffer works correctly before plugging in contrastive learning.
-"""
-
 import pickle
 from collections import deque
 from dataclasses import dataclass

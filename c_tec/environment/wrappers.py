@@ -60,9 +60,6 @@ class OneHotActionWrapper(gym.ActionWrapper):
 class StateCoverageTracker(gym.Wrapper):
     """
     Tracks unique (x, y) positions visited across all episodes.
-
-    Used as the primary evaluation metric, matching the paper's
-    "number of unique discretized states".
     """
 
     def __init__(self, env: gym.Env, fixed_seed: int | None = None):
